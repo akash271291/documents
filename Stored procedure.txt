@@ -1,0 +1,2014 @@
+show procedure CDW_PROC                  .    	get_cust_sk;
+
+replace PROCEDURE cdw_proc.get_cust_sk(IN in_src_cust_id   VARCHAR(50),
+                        IN in_src_sys_cd    VARCHAR(20),
+                        IN in_key_type      VARCHAR(10),
+                        OUT out_cust_xref_sk  bigint) 
+BEGIN
+   DECLARE v_xref_max bigint;
+   DECLARE v_src_sys_cd varchar(20);
+   DECLARE v_cust_xref_sk bigint;
+   declare err_msg varchar;
+   
+      
+   if in_src_sys_cd <> '-1' then
+   
+   
+  -- set err_msg=null;
+   
+		   SELECT coalesce(s.src_sys_cd,'-1')
+		        INTO :v_src_sys_cd
+		        FROM public_ods.lkp_src_sys s
+		   WHERE s.src_sys_cd = in_src_sys_cd;
+   
+  
+  -- set o_cust_xref_sk=v_src_sys_cd; 
+   			if v_src_sys_cd is not null then
+   
+  --set o_cust_xref_sk=-1; 
+   
+				    SELECT coalesce(cust_xref_sk,'-1')
+				          INTO :v_cust_xref_sk
+				          FROM public_ods.dim_cust_xref a
+				         WHERE a.src_sys = v_src_sys_cd
+				           AND a.src_cust_id = in_src_cust_id
+				           AND coalesce(a.key_type, 'SOURCE_ID')= coalesce(in_key_type, 'SOURCE_ID');
+				           
+           
+           
+       ---set o_cust_xref_sk=20;      
+           
+  					 if v_cust_xref_sk is null  then
+          
+						     INSERT INTO public_ods.dim_cust_xref
+						            (src_cust_id,
+						             src_sys,
+						             pfz_cust_id,
+						             key_type,
+						             eff_dt,
+						             end_dt,
+						             cur_ind,
+						             del_ind,
+						             zip_geo_id,
+						             st_geo_id)
+						          VALUES
+						            (in_src_cust_id,
+						             v_src_sys_cd,
+						             -1,
+						             in_key_type,
+						             current_timestamp(0),
+						             cast('12319999' as date format 'MMDDYYYY'),
+						             'Y',
+						             'N',
+						             -1,
+						             -1);
+						           
+						           SELECT cust_xref_sk
+						            INTO :v_cust_xref_sk
+						            FROM public_ods.dim_cust_xref a
+						           WHERE a.src_sys = v_src_sys_cd
+						             AND a.src_cust_id = in_src_cust_id
+						             AND coalesce(a.key_type, 'SOURCE_ID')= coalesce(in_key_type, 'SOURCE_ID');
+                             
+                             INSERT INTO public_ods.dim_cust_xref_his
+						            (src_cust_id,
+						             src_sys,
+						             pfz_cust_id,
+						             key_type,
+						             eff_dt,
+						             end_dt,
+						             cur_ind,
+						             del_ind,
+						             zip_geo_id,
+						             st_geo_id,cust_xref_sk)
+						          VALUES
+						            (in_src_cust_id,
+						             v_src_sys_cd,
+						             -1,
+						             in_key_type,
+						             current_timestamp(0),
+						             cast('12319999' as date format 'MMDDYYYY'),
+						             'Y',
+						             'N',
+						             -1,
+						             -1,v_cust_xref_sk);
+						    
+                             
+     				end if;
+     -- set o_cust_xref_sk=30;    
+     			set out_cust_xref_sk= v_cust_xref_sk;
+     			else
+       --set  err_msg='No data found in table LKP_SRC_SYS for the given src_sys_cd';
+       --set out_cust_xref_sk= o_cust_xref_sk;
+      				CALL dbc.SysExecSQL( 'SELECT Force_Error FROM;');
+      --null;
+    		end if;
+    else
+      --set  err_msg='Invalid input value for src_sys_cd';
+     CALL dbc.SysExecSQL( 'SELECT Force_Error FROM;');
+      end if;    
+  END;
+
+---------------------------------------
+REPLACE PROCEDURE  CDW_US_PROC.AGG_FCT_RX_WKLY ()
+	                  
+	                  BEGIN
+	                  
+	                  DECLARE V_WK_PARM VARCHAR(40); 
+	                  DECLARE V_AUDIT VARCHAR(40); 
+	                  DECLARE SQLSTRING VARCHAR(5000);
+	                        
+	                                                                                
+	                  /* GET THE AUDIT NUMBER */
+	                 
+	                            SELECT TRIM(COALESCE(MAX(AUDIT_SK),0)) INTO V_AUDIT FROM CDW_US_CTL_DB.DIM_RUN_AUDIT;
+	                 
+	                 /* GET THE CURRENT WEEK */
+	                 
+	                     SELECT CAST(CAST(MIN(CALENDAR_DATE) AS DATE FORMAT 'YYYYMMDD') AS CHAR(8))  INTO V_WK_PARM
+	                          FROM SYS_CALENDAR.CALENDAR WHERE WEEK_OF_CALENDAR = 
+	                   ( SELECT WEEK_OF_CALENDAR - 108 FROM SYS_CALENDAR.CALENDAR WHERE CALENDAR_DATE =
+	                   (SELECT MAX(CAST(CAST(DT_SK AS CHAR(8)) AS DATE FORMAT 'YYYYMMDD')) FROM CDW_US_PROCESSING_VW.FCT_RX_WKLY_UNFILTERED));        
+	                   
+	                   /* TRUNCATE  STAGING TABLE*/
+	
+	     DELETE FROM CDW_US_PROCESSING_VW.STG_AGG_FCT_RX_WKLY ALL;
+	                 
+	                 SET SQLSTRING ='INSERT INTO CDW_US_PROCESSING_VW.STG_AGG_FCT_RX_WKLY
+	                 SELECT 
+	                 HRXLY.DT_SK,
+	                 HRXLY.THER_CLAS_CD,
+	                 HRXLY.CHNL_ID,
+	                 MAX(HRXLY.DATA_PERD_SK),
+	                 HRXLY.PROD_XREF_SK,
+	                 HRXLY.PRES_XREF_SK,
+	                 HRXLY.PLAN_XREF_SK,
+	                 '||V_AUDIT||',
+	                 SUM(HRXLY.NRX),
+	                 SUM(HRXLY.TRX),
+	                 SUM(HRXLY.NRX_UNIT),
+	                 SUM(HRXLY.TRX_UNIT),
+	                 SUM(HRXLY.NRX_DOL),
+	                 SUM(HRXLY.TRX_DOL)
+	                 FROM CDW_US_PROCESSING_VW.FCT_RX_WKLY_UNFILTERED HRXLY
+	                WHERE HRXLY.DT_SK >= '||V_WK_PARM||'
+	                 GROUP BY
+	                 HRXLY.DT_SK,
+	                 HRXLY.THER_CLAS_CD,
+	                 HRXLY.CHNL_ID,
+	                 HRXLY.PROD_XREF_SK,
+	                 HRXLY.PRES_XREF_SK,
+	                 HRXLY.PLAN_XREF_SK';
+	                  
+	                  
+ 		 CALL DBC.SYSEXECSQL(SQLSTRING);                 
+	                  
+	     /*TRUNCATE  CDW_US_PROCESSING_VW.FCT_RX_WKLY TABLE */
+	   
+	     DELETE FROM CDW_US_PROCESSING_VW.FCT_RX_WKLY ALL;
+	    
+	    /* SELECTING ONLY LAUNCH MARKET*/              
+	     
+	    INSERT INTO  CDW_US_PROCESSING_VW.FCT_RX_WKLY(DT_SK,
+	     THER_CLAS_CD,
+	     CHNL_ID,
+	     DATA_PERD_SK,
+	     PROD_XREF_SK,
+	     PRES_XREF_SK,
+	     PLAN_XREF_SK,
+	     AUDIT_SK,
+	     NRX,
+	     TRX,
+	     NRX_UNIT,
+	     TRX_UNIT,
+	     NRX_DOL,
+	     TRX_DOL) 
+	SELECT D.DT_SK,
+	     D.THER_CLAS_CD,
+	     D.CHNL_ID,
+	     D.DATA_PERD_SK,
+	     D.PROD_XREF_SK,
+	     D.PRES_XREF_SK,
+	     D.PLAN_XREF_SK,
+	     D.AUDIT_SK,
+	     D.NRX,
+	     D.TRX,
+	     D.NRX_UNIT,
+	     D.TRX_UNIT,
+	     D.NRX_DOL,
+	     D.TRX_DOL
+	 FROM CDW_US_PROCESSING_VW.STG_AGG_FCT_RX_WKLY D,(SEL PROD_XREF_SK FROM CDW_US_PROCESSING_VW.DIM_PROD_XREF A ,(
+	SELECT PFZ_PROD_ID FROM CDW_US_PROCESSING_VW.REL_PROD_MKT_W  REL_PROD_MKT WHERE  REL_PROD_MKT.HIERY_CD = 'SALES'
+	AND REL_PROD_MKT.PFZ_PROD_LVL = 'CMF10' AND DEL_IND='N' AND PFZ_MKT_ID IN ( SELECT PFZ_MKT_ID FROM 
+CDW_US_PROCESSING_VW.REL_COMM_PROD_ASIGN 
+	WHERE  IMS_RX_WKLY_IND = 1 )) B WHERE 
+	B.PFZ_PROD_ID = A .PFZ_PROD_ID
+	AND A.DEL_IND='N' AND A.CUR_IND='Y') C
+	WHERE C.PROD_XREF_SK= D.PROD_XREF_SK;
+	 
+	/*DELETE THE RECORDS FROM THE FINAL FACT TABLE WITH 0 NRX & NRX_UNIT & TRX & TRX_UNIT */
+		
+	DELETE FROM CDW_US_PROCESSING_VW.FCT_RX_WKLY WHERE NRX =0 AND TRX=0 AND NRX_UNIT=0 AND TRX_UNIT=0;
+	
+	/*DELETE THE RECORDS FROM THE AGGREGATE STATGING WITH 0 NRX & NRX_UNIT & TRX & TRX_UNIT */
+	
+	DELETE FROM CDW_US_PROCESSING_VW.STG_AGG_FCT_RX_WKLY WHERE NRX =0 AND TRX=0 AND NRX_UNIT=0 AND TRX_UNIT=0;
+	
+
+	/*DELETE THE RECORDS FROM THE FCT TABLE - RX_FCT_W */
+	
+	DELETE FROM CDW_US_PROCESSING_VW.RX_FCT_W WHERE SRC_SYS='IMS';
+
+
+	/* INSERT IN TO NEW FACT - RX_FCT_W */
+	
+	INSERT INTO  CDW_US_PROCESSING_VW.RX_FCT_W
+	(
+	 DT_SK,
+	 THER_CLAS_CD,
+	 CHNL_ID,
+	 DATA_PERD_SK,
+	 PFZ_PROD_ID,
+	 PFZ_CUST_ID,
+	 PFZ_PLAN_ID,
+	 AUDIT_SK,
+	 NRX,
+	 TRX,
+	 NRX_UNIT,
+	 TRX_UNIT,
+	 NRX_DOL,
+	 TRX_DOL,
+	 SRC_SYS
+	 )
+	SELECT 
+                    DIM_TIME.FCT_DT_SK,
+                    STG_AGG_FCT_RX_WKLY.THER_CLAS_CD,
+                    STG_AGG_FCT_RX_WKLY.CHNL_ID,
+                    STG_AGG_FCT_RX_WKLY.DATA_PERD_SK,
+                    DIM_PROD_XREF .PFZ_PROD_ID,
+                    DIM_CUST_XREF1.PFZ_CUST_ID,
+                    DIM_CUST_XREF2.PFZ_CUST_ID,
+                    STG_AGG_FCT_RX_WKLY.AUDIT_SK,
+                    SUM(STG_AGG_FCT_RX_WKLY.NRX),
+                    SUM(STG_AGG_FCT_RX_WKLY.TRX),
+                    SUM(STG_AGG_FCT_RX_WKLY.NRX_UNIT),
+                    SUM(STG_AGG_FCT_RX_WKLY.TRX_UNIT),
+                    SUM(STG_AGG_FCT_RX_WKLY.NRX_DOL),
+                    SUM(STG_AGG_FCT_RX_WKLY.TRX_DOL),
+                    'IMS'
+                FROM /*CDW_US_PROCESSING_VW.STG_AGG_FCT_RX_WKLY STG_AGG_FCT_RX_WKLY */ /* Commented as part of SHS integration */
+					(SELECT
+						AGG.* 
+					 FROM 
+						CDW_US_PROCESSING_VW.STG_AGG_FCT_RX_WKLY AGG
+					 LEFT OUTER JOIN
+						CDW_US_OPERATING_VW.IMS_OVERLAP_PRODUCTS_WKLY OLAP
+					 ON 
+						AGG.PROD_XREF_SK = OLAP.PROD_XREF_SK
+					 WHERE 
+						((OLAP.IMS_FLAG IS NULL) OR (OLAP.IMS_FLAG IS NOT NULL AND OLAP.IMS_FLAG = 1))
+					)STG_AGG_FCT_RX_WKLY
+                 INNER JOIN  CDW_US_PROCESSING_VW.DIM_PROD_XREF DIM_PROD_XREF
+                ON  STG_AGG_FCT_RX_WKLY.PROD_XREF_SK = DIM_PROD_XREF.PROD_XREF_SK
+                
+                 INNER JOIN  CDW_US_PROCESSING_VW.DIM_CUST_XREF DIM_CUST_XREF1 
+                 ON  STG_AGG_FCT_RX_WKLY.PRES_XREF_SK = DIM_CUST_XREF1.CUST_XREF_SK
+                
+                 INNER JOIN  CDW_US_PROCESSING_VW.DIM_CUST_XREF DIM_CUST_XREF2    
+                 ON  STG_AGG_FCT_RX_WKLY.PLAN_XREF_SK = DIM_CUST_XREF2.CUST_XREF_SK
+                
+                 INNER JOIN (SEL DT_SK,CAST ( CAST( CAST (WK_END_DT AS DATE FORMAT 'YYYYMMDD') AS VARCHAR(10))    AS INTEGER ) FCT_DT_SK
+                                                FROM CDW_US_PROCESSING_VW.DIM_TIME WHERE  DT_UNIT = 'DAY') DIM_TIME
+                ON DIM_TIME.DT_SK = STG_AGG_FCT_RX_WKLY.DT_SK
+                
+                 GROUP BY DIM_TIME.FCT_DT_SK,
+                    STG_AGG_FCT_RX_WKLY.THER_CLAS_CD,
+                    STG_AGG_FCT_RX_WKLY.CHNL_ID,
+                    STG_AGG_FCT_RX_WKLY.DATA_PERD_SK,
+                    DIM_PROD_XREF .PFZ_PROD_ID,
+                    DIM_CUST_XREF1.PFZ_CUST_ID,
+                    DIM_CUST_XREF2.PFZ_CUST_ID,
+                    STG_AGG_FCT_RX_WKLY.AUDIT_SK;
+-------------------------------------------------------------
+
+CREATE or replace procedure "EXT"."EXT_L0_L2L3_BUDGET_P" (P_Periodname Varchar(255) )
+Language SQLScript
+SQL SECURITY INVOKER
+AS
+Begin
+
+Declare V_Periodname Varchar(255) =P_Periodname;
+TRUNCATE table "EXT"."EXT_L0_L2L3_BUDGET_T" ;
+INsert into "EXT"."EXT_L0_L2L3_BUDGET_T"	
+   Select Distinct b.Manager,b.managertitle,b.managerpayeeseq,Sum(b.sgbudget),b.period,b.periodseq from (Select distinct A.managerseq,a.sgbudget,a.period,a.periodseq,po1.name Manager,po1.payeeseq Managerpayeeseq,TL1.Name Managertitle from 
+(select po.name Position,po.effectivestartdate,po.effectiveenddate,po.payeeseq,po.genericattribute9 SG,po.managerseq,
+max(cr.genericnumber4) SGBudget,tl.name Title,pd.name Period,pd.periodseq from cs_position po,cs_credit cr,cs_title tl,cs_period pd
+where po.titleseq=tl.ruleelementownerseq and po.payeeseq=cr.payeeseq and cr.periodseq=pd.periodseq and tl.islast=1 and
+tl.REMOVEDATE='2200-01-01 00:00:00.000000000'  and po.REMOVEDATE='2200-01-01 00:00:00.000000000' and 
+po.payeeseq is not null and po.managerseq is not null and tl.name like ('L0%')
+and cr.name in ('C_L0FL_NSV','C_L0FL_NSV_BS','C_L0FL_BS_CDA_Redeposit','C_L0FL_HC','C_L0_PST_NSV','C_L0_PST_BULK_NSV',
+	'C_L0_PST_HC','C_L0_CSS_NSV','C_L0_CSS_BULK_NSV','C_L0_CSS_HC') and pd.name =  V_Periodname ---'January 2021'  
+	---and po.managerseq=4785074604212207
+	and pd.startdate between po.effectivestartdate and po.effectiveenddate
+	group by po.name,po.payeeseq,po.genericattribute9,po.managerseq,tl.name,pd.name,pd.periodseq,po.effectivestartdate,po.effectiveenddate) A,cs_position po1,cs_title tl1 where tl1.ruleelementownerseq =po1.titleseq 
+	and tl1.islast=1 and tl1.REMOVEDATE='2200-01-01 00:00:00.000000000'  and po1.REMOVEDATE='2200-01-01 00:00:00.000000000' 
+    and a.Managerseq =po1.Ruleelementownerseq
+	and tl1.name in ('L2 ZH','L3 CLH') ) B group by b.Manager,b.managertitle,b.managerpayeeseq,b.period,b.periodseq  order by 1;
+
+Update "TCMP"."CS_MEASUREMENT_VW" MR
+set MR.Value =  A.L0SGBUDGET
+from  "TCMP"."CS_MEASUREMENT_VW" MR, "EXT"."EXT_L0_L2L3_BUDGET_T" A
+where MR.NAME='PM_L0_L2L3_BUDGET'
+and MR.periodseq=A.periodseq
+and MR.Payeeseq=A.payeeseq;
+End
+
+------------------------------
+
+(no subject)
+Inbox
+
+akash arjun <erakash97@gmail.com>
+Feb 8, 2023, 6:55 PM
+to me
+
+ DP MONITOR AND DP AGENT FOR SDI.docx
+ DropBox-Step-by-step_Manual_SSH_File_X-fer_v.4.doc
+ EF SAP Commisson managment POC scope document ...
+ EFL SAP Commissions Requirment and Solution Doc...
+ exit data.txt
+ EXT_FGF_PROC.txt
+ EXT_L0_L2L3_BUDGET_P.txt
+ EXT_L0_SG_NSV_P.txt
+ EXT_SG_SC_OPERATIVE_COUNT_P.txt
+ Jan to March NSV.zip
+ Job Sceduling using XS Web IDE prod.docx
+ L0_CSS_Demo_Final.pptx
+ L1_CH_Design_Doc_Updated.xlsx
+ MANAGERSUB_RELATION_LEADERS.txt
+ MASTER_PROC_COLL_CYCLE_5.txt
+ Migration Check list.xlsx
+ MTR Report Technical Design Document.zip
+ MTR.rar
+ MTR_L1_PROC.txt
+ MTR_LEADERS_PROC.txt
+ ODS.txt
+ Overall_Transactions&Orders.xlsx
+ Partner Channel Technical Design Document.zip
+ PAYOUT_SC.txt
+ PROC_CDA_RD_INSERT_CS_STG_ST_3_NEW_v1.txt
+ PROC_INSERT_PIPELINE_RUNS.txt
+ PROC_UPDATE_COLL_CRC_SO.txt
+ QTR Differential Rules for Migration (version 1...
+ QTR Differential Rules for Migration.xlsx
+ Rules used for Calculations.xlsx
+ SAP COMMISSION USER MANUAL DOCUMENT.pdf
+
+ 31 Attachments
+  •  Scanned by Gmail
+CREATE procedure "EXT"."EXT_CUST_MTR_REPORT_LEADERS_SUB"(out FILENAME VARCHAR (255),P_STARTCYCLE VARCHAR (255),
+P_ENDCYCLE VARCHAR (255),P_YEAR1 VARCHAR (255),P_YEAR2 VARCHAR (255),P_REGION VARCHAR (255),P_SBU VARCHAR (255),P_SALEZOFFICE VARCHAR (255),P_SALESGROUP VARCHAR(255) )
+   SQL SECURITY INVOKER
+   --DEFAULT SCHEMA <default_schema_name>
+   ---READS SQL DATA 
+   AS
+BEGIN
+
+Declare V_STARTCYCLE varchar(255) = P_STARTCYCLE;
+DECLARE V_ENDCYCLE VARCHAR(255)= P_ENDCYCLE;
+Declare V_STARTPERIOD varchar(255);
+DECLARE V_ENDPERIOD VARCHAR(255);
+DECLARE V_YEAR1 VARCHAR(255)= P_YEAR1;
+DECLARE V_YEAR2 VARCHAR(255)= P_YEAR2;
+declare  V_PERIODSEQ1 BIGINT;
+declare  V_PERIODSEQ2 BIGINT;
+declare  V_PERIOD VARCHAR(255);
+declare v_Region VARCHAR(255)  =P_REGION;
+declare V_SBU varchar(255) =P_SBU;
+declare V_SALEZOFFICE varchar(255)=P_SALEZOFFICE;
+declare V_SALESGROUP varchar(255)=P_SALESGROUP;
+
+
+
+DECLARE i BIGINT;
+SELECT CASE WHEN V_STARTCYCLE ='1' THEN TO_CHAR('April '||P_YEAR1)
+ WHEN V_STARTCYCLE ='2' THEN TO_CHAR('May '||P_YEAR1)
+ WHEN V_STARTCYCLE ='3' THEN TO_CHAR('June '||P_YEAR1)
+  WHEN V_STARTCYCLE ='4' THEN TO_CHAR('July '||P_YEAR1)
+   WHEN V_STARTCYCLE ='5' THEN TO_CHAR('August '||P_YEAR1)
+    WHEN V_STARTCYCLE ='6' THEN TO_CHAR('September '||P_YEAR1)
+	 WHEN V_STARTCYCLE ='7' THEN TO_CHAR('October '||P_YEAR1)
+	  WHEN V_STARTCYCLE ='8' THEN TO_CHAR('November '||P_YEAR1)
+	   WHEN V_STARTCYCLE ='9' THEN TO_CHAR('December '||P_YEAR1)
+	    WHEN V_STARTCYCLE ='10' THEN TO_CHAR('January '||P_YEAR1)
+		 WHEN V_STARTCYCLE ='11' THEN TO_CHAR('February '||P_YEAR1)
+		  WHEN V_STARTCYCLE ='12' THEN TO_CHAR('March '||P_YEAR1)
+ END AS VSTART INTO V_STARTPERIOD 
+ from dummy;
+ 
+ SELECT CASE WHEN V_ENDCYCLE ='1' THEN TO_CHAR('April '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='2' THEN TO_CHAR('May '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='3' THEN TO_CHAR('June '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='4' THEN TO_CHAR('July '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='5' THEN TO_CHAR('August '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='6' THEN TO_CHAR('September '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='7' THEN TO_CHAR('October '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='8' THEN TO_CHAR('November '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='9' THEN TO_CHAR('December '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='10' THEN TO_CHAR('January '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='11' THEN TO_CHAR('February '||P_YEAR2) 
+ WHEN V_ENDCYCLE ='12' THEN TO_CHAR('March '||P_YEAR2)
+ 
+ END AS VEND INTO V_ENDPERIOD 
+ from dummy;
+                                  
+         
+		 
+SELECT pd.PERIODSEQ into V_PERIODSEQ1 from cs_period pd where pd.NAME = V_STARTPERIOD and CALENDARSEQ=2251799813685250;
+SELECT PD.PERIODSEQ INTO V_PERIODSEQ2 FROM CS_PERIOD PD WHERE PD.NAME=V_ENDPERIOD AND CALENDARSEQ=2251799813685250;
+
+TRUNCATE TABLE "EXT"."MANAGERSUBORDINATES_T";
+
+for i in  V_PERIODSEQ1..V_PERIODSEQ2 
+do
+SELECT pd.name into V_PERIOD from cs_period pd where pd.PERIODSEQ = i and CALENDARSEQ=2251799813685250;
+
+
+call "EXT"."MANAGERSUBORDINATES_P"(V_PERIOD);
+ end for ;
+
+
+---------------------l0 insert--------------------------------------------------
+truncate table "EXT"."EXT_CUST_MTR_LDRL0F";
+INSERT INTO "EXT"."EXT_CUST_MTR_LDRL0F"
+	 	select * from (select t1.reg,
+	 	t1.SBU,
+	 	t1.saleszoffice,
+	 	t1.saleszofficeName,
+	 	t1.SALESGROUP,
+	 	t1.Matgrp,
+	 	t1.cycle,
+	 	t1.position,
+	 	NULL,
+	 	NULL,
+	 	null,
+	t1.Emplvl,
+	sum(TO_NUMBER(BULKSALESVALUE)),
+	sum(TO_NUMBER(ApplicableBulkSalesValue)),
+	sum(TO_NUMBER(UnitSaleswitoutHCBulk)),
+	sum(TO_NUMBER(VALUESALESWITHOUTHCBULK)),
+	sum(TO_NUMBER(HCSALESUNIT)),
+	sum(TO_NUMBER(HCSALESVALUE)),
+	sum(TO_NUMBER(EWQty)),
+	sum(TO_NUMBER(EWVQtyalue)),
+sum(TO_NUMBER(GROSSSALES)),
+sum(TO_NUMBER(BUYBACK)),
+sum(TO_NUMBER(DISCOUNT)),
+sum(TO_NUMBER(NETSALES)),
+sum(TO_NUMBER(SALESRTN)),
+sum(TO_NUMBER(CDA)),
+sum(TO_NUMBER(REDEP)),
+sum(TO_NUMBER(INVREVERSAL)),
+sum(TO_NUMBER(INVRTNREVERSAL)),
+sum(TO_NUMBER(ICMNETSALES)),
+TO_NUMBER(BUDGET),
+TO_NUMBER(ACHD),
+sum(TO_NUMBER(GROSSSALESYTD)),
+sum(TO_NUMBER(BUYBACKYTD)),
+sum(TO_NUMBER(DISCOUNTYTD)),
+sum(TO_NUMBER(NETSALESYTD)),
+sum(TO_NUMBER(SALESRTNYTD)),
+sum(TO_NUMBER(CDAYTD)),
+sum(TO_NUMBER(REDEPYTD)),
+sum(TO_NUMBER(INVREVERSALYTD)),
+sum(TO_NUMBER(INVRTNREVERSALYTD)),
+sum(TO_NUMBER(ICMNETSALESYTD)),
+TO_NUMBER(BUDGETYTD),
+TO_NUMBER(ACHDYTD)
+,PERIODNAME from
+
+(select * from
+(select distINCt
+                    --po.managerseq as managerseq,
+                                PO.GENERICATTRIBUTE10 as Reg,
+                PO.GENERICATTRIBUTE11 as SBU,
+                PO.GENERICATTRIBUTE8 as saleszoffice,
+                PO.genericattribute16 AS saleszofficeName,
+                PO.GENERICATTRIBUTE9 as SalesGroup,
+                GA.GENERICATTRIBUTE6 as SalesGroupName,
+                PAR.Userid as EmpNum,
+                PO.GENERICATTRIBUTE2 as Matgrp,
+                         case when PD.name like 'April %'
+            THEN 1
+         else
+                                  case when PD.name like 'May %'
+            THEN 2
+          else
+                                  case when PD.name like 'June %'
+            THEN 3
+          else
+                                  case when PD.name like 'July %'
+            THEN 4
+          else
+                                  case when PD.name like 'August %'
+            THEN 5
+          else
+                                  case when PD.name like 'September %'
+            THEN 6
+          else
+                                   case when PD.name like 'October %'
+            THEN 7
+          else
+                                   case when PD.name like 'November %'
+            THEN 8
+          else
+                                   case when PD.name like 'December %'
+            THEN 9
+          else
+                                   case when PD.name like 'January %'
+            THEN 10
+          else
+                                   case when PD.name like 'February %'
+            THEN 11
+          else
+                                   case when PD.name like 'March %'
+            THEN 12
+                                  else 0
+end
+end 
+end 
+end 
+end
+end
+end
+end 
+end
+end
+end
+end as CYCLE,
+                PAR.LASTNAME as Emp_Name,
+                ---PAR.HIREDATE as DOJ,
+    To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+    
+   ---- To_real(INC.genericnumber2) LOSInMonth,   ---- It should be from date of Joining or Date of Hrining     To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+    To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+                To_Char(PAR.terminationdate,'MM-DD-YYYY') AS DOR,
+                ttl.name as Desg,
+               PAR.GENERICATTRIBUTE6 as Emplvl,
+                PAR.GENERICATTRIBUTE3 as Empstus,
+                PAR.GENERICBOOLEAN1 AS STATUS,
+             to_real(Replace(replace(INC.genericnumber4,'₹',''),',','')) as BulkSalesValue,
+               to_real(Replace(replace(INC.genericnumber3,'₹',''),',',''))as ApplicableBulkSalesValue,
+               to_real (replace(Replace(replace(LOWER (INC.genericattribute2),'quantity',''),'qty',''),',','')) as UnitSaleswitoutHCBulk,
+               to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))as ValueSalesWithoutHCBulk,
+               to_real (replace(Replace(replace(LOWER(INC.genericattribute4),'quantity',''),'qty',''),',','')) as HCSalesUnit,
+              -- to_real(Replace(replace(INC.genericattribute4,'quantity',''),',','')) as HCSalesUnit,
+                to_real(Replace(replace(LOWER(INC.genericattribute5),'₹',''),',',''))as HCSalesValue,
+                to_real (replace(Replace(replace(LOWER (INC.genericattribute6),'quantity',''),'qty',''),',','')) as EWQty,
+              -- to_real(Replace(replace(INC.genericattribute6,'quantity',''),',','')) as EWQty,
+               to_real(Replace(replace(INC.genericattribute7,'₹',''),',','')) as EWVQtyalue,
+                to_real(Replace(replace(INC.genericattribute8,'₹',''),',','')) as GrossSales,
+                to_real(Replace(replace(INC.genericattribute9,'₹',''),',',''))as Buyback,
+                to_real(Replace(replace(INC.genericattribute10,'₹',''),',',''))as Discount,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as Netsales,
+                to_real(Replace(replace(INC.genericattribute12,'₹',''),',',''))as SalesRtn,
+                to_real(Replace(replace(INC.genericattribute13,'₹',''),',',''))as CDA,
+                to_real(Replace(replace(INC.genericattribute14,'₹',''),',',''))as Redep,
+                to_real(Replace(replace(INC.genericattribute15,'₹',''),',',''))as InvReversal,
+                to_real(Replace(replace(INC.genericattribute16,'₹',''),',',''))as InvRtnReversal,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as ICMNetSales,
+              to_decimal(Replace(replace(INC.genericnumber1,'₹',''),',',''),20,2)as CnvrtdQtyonBaseVal,
+			    to_real(Replace(replace(INC.genericattribute11,'₹',''),',','')) as budget,
+                to_real(Replace(replace(INC.genericnumber6,'₹',''),',',''))as achd,
+			  to_real(Replace(replace(INC1.genericattribute8,'₹',''),',','')) as GrossSalesytd,
+                to_real(Replace(replace(INC1.genericattribute9,'₹',''),',',''))as Buybackytd,
+                to_real(Replace(replace(INC1.genericattribute10,'₹',''),',',''))as Discountytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as Netsalesytd,
+                to_real(Replace(replace(INC1.genericattribute12,'₹',''),',',''))as SalesRtnytd,
+                to_real(Replace(replace(INC1.genericattribute13,'₹',''),',',''))as CDAytd,
+                to_real(Replace(replace(INC1.genericattribute14,'₹',''),',',''))as Redepytd,
+                to_real(Replace(replace(INC1.genericattribute15,'₹',''),',',''))as InvReversalytd,
+                to_real(Replace(replace(INC1.genericattribute16,'₹',''),',',''))as InvRtnReversalytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as ICMNetSalesytd,
+				 to_real(Replace(replace(INC1.genericattribute11,'₹',''),',','')) as budgetytd,
+                to_real(Replace(replace(INC1.genericnumber6,'₹',''),',',''))as achdytd,
+			  
+			  
+			  
+                PO.NAME as Position,
+                                                    PD.NAME as PERIODNAME
+
+                from 
+
+               "TCMP".CS_PERIOD PD
+               ,"TCMP".cs_INCentive INC
+               ,"TCMP".cs_POsition PO
+                ,"TCMP".cs_PARticipant PAR
+                ,"TCMP".cs_calendar CLR,
+                 "TCMP".CS_GAPOSITION GA,
+				 "TCMP".CS_TITLE TTL,
+				"TCMP".CS_SALESTRANSACTION ST,
+                "TCMP".CS_TRANSACTIONASSIGNMENT TA,
+				"TCMP".CS_PAYEE PY,
+				"TCMP".cs_INCentive INC1
+				
+
+				
+                where PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and CLR.calendarseq=2251799813685250
+				AND PY.payeeseq=PAR.payeeseq
+				AND PY.PAYEEID=TA.PAYEEID
+				AND PY.PAYEESEQ=PO.PAYEESEQ
+				AND TA.SALESTRANSACTIONSEQ=ST.SALESTRANSACTIONSEQ
+				and PY.removedate = '2200-01-01 00:00:00.000000000'
+				AND TO_CHAR(ST.COMPENSATIONDATE,'Month YYYY') =PD.NAME
+                and PD.calendarseq = CLR.calendarseq
+                and PD.periodseq = INC.periodseq
+                and PO.payeeseq=INC.payeeseq
+                and PAR.payeeseq=INC.payeeseq
+                and PAR.removedate ='2200-01-01 00:00:00.000000000'
+                and PO.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and GA.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and PO.effectivestartdate=GA.effectivestartdate
+                and PAR.payeeseq=PO.payeeseq
+                and po.effectivestartdate <=pd.startdate
+                and par.effectivestartdate <=pd.startdate
+				AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE 
+		AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+                and PAR.payeeseq=PO.payeeseq
+                                                                and GA.ruleelementownerseq=PO.ruleelementownerseq
+                                                                and PAR.genericattribute1 in('025', '026', '027', '028', '029', '340')
+																AND TTL.NAME NOT IN ('L0 PC-CSS','L0 PC-CSE','L1 PC','L2 PC','L3 PC')
+				AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+               AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+                                                                and INC.name='I_L0CSS_REPORTING'
+                                                                and INC1.name='IR_L0CSS_Reporting_YTD'
+                                                                AND INC1.POSITIONSEQ=INC.POSITIONSEQ
+																AND INC1.PERIODSEQ=INC.PERIODSEQ
+                                                    and PD.periodseq = INC1.periodseq
+                and PO.payeeseq=INC1.payeeseq
+                and PAR.payeeseq=INC1.payeeseq
+				and po.ruleelementownerseq=inc.positionseq
+                and po.ruleelementownerseq=inc1.positionseq
+              and po.name not in 
+															(SELECT NAME FROM CS_POSITION WHERE RULEELEMENTOWNERSEQ IN (select managerseq from cs_position where managerseq in(select RULEELEMENTOWNERSEQ 
+from cs_position WHERE titleseq in (select RULEELEMENTOWNERSEQ from cs_title where name in ('L0 CS-CSE','L0 CS-CSS/CSE','L0 CS-CSS') ) ) ) AND REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY') )                                                  
+
+                                                   
+                                                  
+    -------------------------------------------------------------- L0FL-------
+	
+                                                                
+                                                                union
+                                                                select distINCt
+                                                               -- po.managerseq as managerseq,
+                PO.GENERICATTRIBUTE10 as Reg,
+                PO.GENERICATTRIBUTE11 as SBU,
+                PO.GENERICATTRIBUTE8 as saleszoffice,
+                PO.genericattribute16 AS saleszofficeName,
+                PO.GENERICATTRIBUTE9 as SalesGroup,
+                Replace(replace(GA.GENERICATTRIBUTE6,'₹',''),',','')  as SalesGroupName,
+                PAR.Userid as EmpNum,
+                PO.GENERICATTRIBUTE2 as Matgrp,
+                         case when PD.name like 'April %'
+            THEN 1
+         else
+                                  case when PD.name like 'May %'
+            THEN 2
+          else
+                                  case when PD.name like 'June %'
+            THEN 3
+          else
+                                  case when PD.name like 'July %'
+            THEN 4
+          else
+                                  case when PD.name like 'August %'
+            THEN 5
+          else
+                                  case when PD.name like 'September %'
+            THEN 6
+          else
+                                   case when PD.name like 'October %'
+            THEN 7
+          else
+                                   case when PD.name like 'November %'
+            THEN 8
+          else
+                                   case when PD.name like 'December %'
+            THEN 9
+          else
+                                   case when PD.name like 'January %'
+            THEN 10
+          else
+                                   case when PD.name like 'February %'
+            THEN 11
+          else
+                                   case when PD.name like 'March %'
+            THEN 12
+                                  else 0
+end
+end 
+end 
+end 
+end
+end
+end
+end 
+end
+end
+end
+end as CYCLE,
+                PAR.LASTNAME as Emp_Name,
+                ---PAR.HIREDATE as DOJ,
+    To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+   -- To_real(INC.genericnumber2) LOSInMonth,   ---- It should be from date of Joining or Date of Hrining   
+   To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+                To_Char(PAR.terminationdate,'MM-DD-YYYY') AS DOR,
+                TTL.NAME as Desg,
+                                                                
+                PAR.GENERICATTRIBUTE6 as Emplvl,
+                PAR.GENERICATTRIBUTE3 as Empstus,
+                PAR.GENERICBOOLEAN1 AS STATUS,
+               to_real(Replace(replace(INC.genericnumber4,'₹',''),',','')) as BulkSalesValue,
+               to_real(Replace(replace(INC.genericnumber3,'₹',''),',',''))as ApplicableBulkSalesValue,
+               to_real(Replace(replace(INC.genericattribute2,'integer',''),',','')) as UnitSaleswitoutHCBulk,
+               to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))as ValueSalesWithoutHCBulk,
+           --    to_real(Replace(replace(INC.genericattribute4,'quantity',''),',','')) as HCSalesUnit,
+               to_real (replace(Replace(replace(INC.genericattribute4,'quantity',''),'qty',''),',','')) as HCSalesUnit,
+                to_real(Replace(replace(INC.genericattribute5,'₹',''),',',''))as HCSalesValue,
+            --   to_real(Replace(replace(INC.genericattribute6,'quantity',''),',','')) as EWQty,
+                to_real (replace(Replace(replace(INC.genericattribute6,'quantity',''),'qty',''),',','')) as EWQty,
+               to_real(Replace(replace(INC.genericattribute7,'₹',''),',','')) as EWVQtyalue,
+                to_real(Replace(replace(INC.genericattribute8,'₹',''),',','')) as GrossSales,
+                to_real(Replace(replace(INC.genericattribute9,'₹',''),',',''))as Buyback,
+                to_real(Replace(replace(INC.genericattribute10,'₹',''),',',''))as Discount,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as Netsales,
+                to_real(Replace(replace(INC.genericattribute12,'₹',''),',',''))as SalesRtn,
+                to_real(Replace(replace(INC.genericattribute13,'₹',''),',',''))as CDA,
+                to_real(Replace(replace(INC.genericattribute14,'₹',''),',',''))as Redep,
+                to_real(Replace(replace(INC.genericattribute15,'₹',''),',',''))as InvReversal,
+                to_real(Replace(replace(INC.genericattribute16,'₹',''),',',''))as InvRtnReversal,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as ICMNetSales,
+              to_decimal(Replace(replace(INC.genericnumber1,'₹',''),',',''),20,2)as CnvrtdQtyonBaseVal,
+			    to_real(Replace(replace(INC.genericattribute11,'₹',''),',','')) as budget,
+                to_real(Replace(replace(INC.genericnumber6,'₹',''),',',''))as achd,
+			  to_real(Replace(replace(INC1.genericattribute8,'₹',''),',','')) as GrossSalesytd,
+                to_real(Replace(replace(INC1.genericattribute9,'₹',''),',',''))as Buybackytd,
+                to_real(Replace(replace(INC1.genericattribute10,'₹',''),',',''))as Discountytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as Netsalesytd,
+                to_real(Replace(replace(INC1.genericattribute12,'₹',''),',',''))as SalesRtnytd,
+                to_real(Replace(replace(INC1.genericattribute13,'₹',''),',',''))as CDAytd,
+                to_real(Replace(replace(INC1.genericattribute14,'₹',''),',',''))as Redepytd,
+                to_real(Replace(replace(INC1.genericattribute15,'₹',''),',',''))as InvReversalytd,
+                to_real(Replace(replace(INC1.genericattribute16,'₹',''),',',''))as InvRtnReversalytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as ICMNetSalesytd,
+				 to_real(Replace(replace(INC1.genericattribute11,'₹',''),',','')) as budgetytd,
+                to_real(Replace(replace(INC1.genericnumber6,'₹',''),',',''))as achdytd,
+                                  PO.name as Position,
+                                  PD.name as PERIODNAME
+                from 
+               "TCMP".cs_period PD
+              ,"TCMP".cs_INCentive INC
+              ,"TCMP".cs_POsition PO
+              ,"TCMP".cs_PARticipant PAR
+              ,"TCMP".cs_calendar CLR,
+                           "TCMP".CS_GAPOSITION GA,
+						   "TCMP".CS_TITLE TTL,
+						   "TCMP".CS_SALESTRANSACTION ST,
+                "TCMP".CS_TRANSACTIONASSIGNMENT TA,
+				"TCMP".CS_PAYEE PY,
+				"TCMP".cs_INCentive INC1
+                                                                                
+  where PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and CLR.calendarseq=2251799813685250
+				AND PY.payeeseq=PAR.payeeseq
+				AND PY.PAYEEID=TA.PAYEEID
+				AND PY.PAYEESEQ=PO.PAYEESEQ
+				AND TA.SALESTRANSACTIONSEQ=ST.SALESTRANSACTIONSEQ
+				and PY.removedate = '2200-01-01 00:00:00.000000000'
+				AND TO_CHAR(ST.COMPENSATIONDATE,'Month YYYY') =PD.NAME
+                and PD.calendarseq = CLR.calendarseq
+                and PD. periodseq= Inc.periodseq
+                and PO.payeeseq=Inc.payeeseq
+                and PAR.payeeseq=Inc.payeeseq
+                and PAR.removedate ='2200-01-01 00:00:00.000000000'
+                and PO.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and GA.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and PO.effectivestartdate=GA.effectivestartdate
+                 and PAR.payeeseq=PO.payeeseq
+                and po.effectivestartdate <=pd.startdate
+                and par.effectivestartdate <=pd.startdate
+                and PAR.payeeseq=PO.payeeseq
+					AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+                                                                and GA.ruleelementownerseq=PO.ruleelementownerseq
+                                                                and PAR.genericattribute1 in ('359','360', '361')
+																AND TTL.NAME NOT IN ('L0 PC-CSS','L0 PC-CSE','L1 PC','L2 PC','L3 PC')
+				AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+               AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+                and INC.name='I_L0FL_Reporting'      
+      and INC.name='I_L0FL_Reporting'
+                                                                and INC1.name='IR_L0FL_Reporting_YTD'
+                                                                AND INC1.POSITIONSEQ=INC.POSITIONSEQ
+																AND INC1.PERIODSEQ=INC.PERIODSEQ
+                                                    and PD.periodseq = INC1.periodseq
+                and PO.payeeseq=INC1.payeeseq
+                and PAR.payeeseq=INC1.payeeseq
+				and po.ruleelementownerseq=inc.positionseq
+                and po.ruleelementownerseq=inc1.positionseq
+              and po.name not in 
+															(SELECT NAME FROM CS_POSITION WHERE RULEELEMENTOWNERSEQ IN (select managerseq from cs_position where managerseq in(select RULEELEMENTOWNERSEQ 
+from cs_position WHERE titleseq in (select RULEELEMENTOWNERSEQ from cs_title where name in ('L0 FL','L0 SC') ) ) ) AND REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY') )                                                  
+
+-----------------------------------------pst----------------------------------------
+				
+                                                                UNION
+                                                                                           select distINCt
+                                                                                           -- po.managerseq as managerseq,
+                                PO.GENERICATTRIBUTE10 as Reg,
+                PO.GENERICATTRIBUTE11 as SBU,
+                PO.GENERICATTRIBUTE8 as saleszoffice,
+                PO.genericattribute16 AS saleszofficeName,
+                PO.GENERICATTRIBUTE9 as SalesGroup,
+                GA.GENERICATTRIBUTE6 as SalesGroupName,
+                PAR.Userid as EmpNum,
+                PO.GENERICATTRIBUTE2 as Matgrp,
+                        case when PD.name like 'April %'
+            THEN 1
+         else
+                                  case when PD.name like 'May %'
+            THEN 2
+          else
+                                  case when PD.name like 'June %'
+            THEN 3
+          else
+                                  case when PD.name like 'July %'
+            THEN 4
+          else
+                                  case when PD.name like 'August %'
+            THEN 5
+          else
+                                  case when PD.name like 'September %'
+            THEN 6
+          else
+                                   case when PD.name like 'October %'
+            THEN 7
+          else
+                                   case when PD.name like 'November %'
+            THEN 8
+          else
+                                   case when PD.name like 'December %'
+            THEN 9
+          else
+                                   case when PD.name like 'January %'
+            THEN 10
+          else
+                                   case when PD.name like 'February %'
+            THEN 11
+          else
+                                   case when PD.name like 'March %'
+            THEN 12
+                                  else 0
+end
+end 
+end 
+end 
+end
+end
+end
+end 
+end
+end
+end
+end as CYCLE,
+                PAR.LASTNAME as Emp_Name,
+                ---PAR.HIREDATE as DOJ,
+    To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+   -- To_real(INC.genericnumber2) LOSInMonth,   ---- It should be from date of Joining or Date of Hrining  
+   To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+                To_Char(PAR.terminationdate,'MM-DD-YYYY') AS DOR,
+                TTL.name as Desg,                              
+                PAR.GENERICATTRIBUTE1 as Emplvl,
+                PAR.GENERICATTRIBUTE3 as Empstus,
+                PAR.GENERICBOOLEAN1 AS STATUS,
+               to_real(Replace(replace(INC.genericnumber4,'₹',''),',','')) as BulkSalesValue,
+               to_real(Replace(replace(INC.genericnumber3,'₹',''),',',''))as ApplicableBulkSalesValue,
+                   to_real (replace(Replace(replace(INC.genericattribute2,' quantity',''),'qty',''),',','')) as UnitSaleswitoutHCBulk,
+              -- to_real(Replace(replace(INC.genericattribute2,'quantity',''),',','')) as UnitSaleswitoutHCBulk,
+               to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))as ValueSalesWithoutHCBulk,
+               to_real (replace(Replace(replace(INC.genericattribute4,' quantity',''),'qty',''),',','')) as HCSalesUnit,
+             --  to_real(Replace(replace(INC.genericattribute4,'quantity',''),',','')) as HCSalesUnit,
+                to_real(Replace(replace(INC.genericattribute5,'₹',''),',',''))as HCSalesValue,
+                to_real (replace(Replace(replace(INC.genericattribute6,' quantity',''),'qty',''),',','')) as EWQty,
+               --to_real(Replace(replace(INC.genericattribute6,'quantity',''),',','')) as EWQty,
+               to_real(Replace(replace(INC.genericattribute7,'₹',''),',','')) as EWVQtyalue,
+                to_real(Replace(replace(INC.genericattribute8,'₹',''),',','')) as GrossSales,
+                to_real(Replace(replace(INC.genericattribute9,'₹',''),',',''))as Buyback,
+                to_real(Replace(replace(INC.genericattribute10,'₹',''),',',''))as Discount,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as Netsales,
+                to_real(Replace(replace(INC.genericattribute12,'₹',''),',',''))as SalesRtn,
+                to_real(Replace(replace(INC.genericattribute13,'₹',''),',',''))as CDA,
+                to_real(Replace(replace(INC.genericattribute14,'₹',''),',',''))as Redep,
+                to_real(Replace(replace(INC.genericattribute15,'₹',''),',',''))as InvReversal,
+                to_real(Replace(replace(INC.genericattribute16,'₹',''),',',''))as InvRtnReversal,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as ICMNetSales,
+              to_decimal(Replace(replace(INC.genericnumber1,'₹',''),',',''),20,2)as CnvrtdQtyonBaseVal,
+			    to_real(Replace(replace(INC.genericattribute11,'₹',''),',','')) as budget,
+                to_real(Replace(replace(INC.genericnumber6,'₹',''),',',''))as achd,
+			  to_real(Replace(replace(INC1.genericattribute8,'₹',''),',','')) as GrossSalesytd,
+                to_real(Replace(replace(INC1.genericattribute9,'₹',''),',',''))as Buybackytd,
+                to_real(Replace(replace(INC1.genericattribute10,'₹',''),',',''))as Discountytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as Netsalesytd,
+                to_real(Replace(replace(INC1.genericattribute12,'₹',''),',',''))as SalesRtnytd,
+                to_real(Replace(replace(INC1.genericattribute13,'₹',''),',',''))as CDAytd,
+                to_real(Replace(replace(INC1.genericattribute14,'₹',''),',',''))as Redepytd,
+                to_real(Replace(replace(INC1.genericattribute15,'₹',''),',',''))as InvReversalytd,
+                to_real(Replace(replace(INC1.genericattribute16,'₹',''),',',''))as InvRtnReversalytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as ICMNetSalesytd,
+				 to_real(Replace(replace(INC1.genericattribute11,'₹',''),',','')) as budgetytd,
+                to_real(Replace(replace(INC1.genericnumber6,'₹',''),',',''))as achdytd,
+                                                                PO.name as Position,
+																PD.name as PERIODNAME
+
+                from 
+               "TCMP".cs_period PD
+              ,"TCMP".cs_INCentive INC
+              ,"TCMP".cs_POsition PO
+               ,"TCMP".cs_PARticipant PAR
+               ,"TCMP".cs_calendar CLR,
+                            "TCMP".CS_GAPOSITION GA,
+							"TCMP".CS_TITLE TTL,
+							"TCMP".CS_SALESTRANSACTION ST,
+                "TCMP".CS_TRANSACTIONASSIGNMENT TA,
+				"TCMP".CS_PAYEE PY,
+				"TCMP".cs_INCentive INC1
+				
+                                                                                
+                where PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and CLR.calendarseq=2251799813685250
+				AND PY.payeeseq=PAR.payeeseq
+				AND PY.PAYEEID=TA.PAYEEID
+				AND PY.PAYEESEQ=PO.PAYEESEQ
+				AND TA.SALESTRANSACTIONSEQ=ST.SALESTRANSACTIONSEQ
+				and PY.removedate = '2200-01-01 00:00:00.000000000'
+				AND TO_CHAR(ST.COMPENSATIONDATE,'Month YYYY') =PD.NAME
+                and PD.calendarseq = CLR.calendarseq
+                and PD.periodseq = Inc.periodseq
+                and PO.payeeseq=Inc.payeeseq
+                and PAR.payeeseq=Inc.payeeseq
+                and PAR.removedate ='2200-01-01 00:00:00.000000000'
+                and PO.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and GA.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and PO.effectivestartdate=GA.effectivestartdate
+                                                                and GA.ruleelementownerseq=PO.ruleelementownerseq
+                 and PAR.payeeseq=PO.payeeseq
+                and po.effectivestartdate <=pd.startdate
+                and par.effectivestartdate <=pd.startdate
+					AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+                and PAR.payeeseq=PO.payeeseq
+                and PAR.genericattribute1 = '262'
+				AND TTL.NAME NOT IN ('L0 PC-CSS','L0 PC-CSE','L1 PC','L2 PC','L3 PC')
+				AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+               AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+                and INC.name='I_L0PST_REPORTING'
+				 and INC1.name='IR_L0PST_REPORTING_YTD'
+				
+                                                                AND INC1.POSITIONSEQ=INC.POSITIONSEQ
+																AND INC1.PERIODSEQ=INC.PERIODSEQ
+																  and PD.periodseq = INC1.periodseq
+                and PO.payeeseq=INC1.payeeseq
+                and PAR.payeeseq=INC1.payeeseq
+				and po.ruleelementownerseq=inc.positionseq
+                and po.ruleelementownerseq=inc1.positionseq
+                                                                order by REG,SALESGROUP))t1 
+GROUP BY t1.reg,t1.SALESGROUP,t1.PERIODNAME,t1.position,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.Matgrp,t1.cycle,t1.Emplvl,T1.BUDGET,T1.ACHD,T1.BUDGETYTD,T1.ACHDYTD );
+
+-----------------------------l1 insert ----------------------------------------------------------
+
+truncate table "EXT"."EXT_CUST_MTR_LDRL1F";
+INSERT INTO "EXT"."EXT_CUST_MTR_LDRL1F"
+ 
+        	select * from (select t1.reg,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.SALESGROUP,t1.Matgrp,t1.cycle,t1.position,NULL,NULL,null,
+	t1.Emplvl,
+	sum(TO_NUMBER(BULKSALESVALUE)),sum(TO_NUMBER(ApplicableBulkSalesValue)),sum(TO_NUMBER(UnitSaleswitoutHCBulk)),sum(TO_NUMBER(VALUESALESWITHOUTHCBULK)),
+	sum(TO_NUMBER(HCSALESUNIT)),sum(TO_NUMBER(HCSALESVALUE)),
+	sum(TO_NUMBER(EWQty)),sum(TO_NUMBER(EWVQtyalue)),
+sum(TO_NUMBER(GROSSSALES)),sum(TO_NUMBER(BUYBACK)),sum(TO_NUMBER(DISCOUNT)),sum(TO_NUMBER(NETSALES)),sum(TO_NUMBER(SALESRTN)),
+sum(TO_NUMBER(CDA)),sum(TO_NUMBER(REDEP)),sum(TO_NUMBER(INVREVERSAL)),sum(TO_NUMBER(INVRTNREVERSAL)),sum(TO_NUMBER(ICMNETSALES))
+,TO_NUMBER(budget),TO_NUMBER(achd),sum(TO_NUMBER(GrossSalesytd)),sum(TO_NUMBER(Buybackytd)),sum(TO_NUMBER(Discountytd)),sum(TO_NUMBER(Netsalesytd))
+,sum(TO_NUMBER(SalesRtnytd)),sum(TO_NUMBER(CDAytd)),sum(TO_NUMBER(Redepytd)),sum(TO_NUMBER(InvReversalytd)),sum(TO_NUMBER(InvRtnReversalytd)),sum(TO_NUMBER(ICMNetSalesytd))
+,TO_NUMBER(budgetytd),TO_NUMBER(achdytd),PERIODNAME from
+
+(select * from( select distINCt
+                   -- po.managerseq as managerseq,
+                                PO.GENERICATTRIBUTE10 as Reg,
+                PO.GENERICATTRIBUTE11 as SBU,
+                PO.GENERICATTRIBUTE8 as saleszoffice,
+                PO.genericattribute16 AS saleszofficeName,
+                PO.GENERICATTRIBUTE9 as SalesGroup,
+                GA.GENERICATTRIBUTE6 as SalesGroupName,
+                PAR.Userid as EmpNum,
+                PO.GENERICATTRIBUTE2 as Matgrp,
+                         case when PD.name like 'April %'
+            THEN 1
+         else
+                                  case when PD.name like 'May %'
+            THEN 2
+          else
+                                  case when PD.name like 'June %'
+            THEN 3
+          else
+                                  case when PD.name like 'July %'
+            THEN 4
+          else
+                                  case when PD.name like 'August %'
+            THEN 5
+          else
+                                  case when PD.name like 'September %'
+            THEN 6
+          else
+                                   case when PD.name like 'October %'
+            THEN 7
+          else
+                                   case when PD.name like 'November %'
+            THEN 8
+          else
+                                   case when PD.name like 'December %'
+            THEN 9
+          else
+                                   case when PD.name like 'January %'
+            THEN 10
+          else
+                                   case when PD.name like 'February %'
+            THEN 11
+          else
+                                   case when PD.name like 'March %'
+            THEN 12
+                                  else 0
+end
+end 
+end 
+end 
+end
+end
+end
+end 
+end
+end
+end
+end as CYCLE,
+                         PAR.LASTNAME as Emp_Name,
+                ---PAR.HIREDATE as DOJ,
+    To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+   -- To_real(INC.genericnumber2) LOSInMonth,   ---- It should be from date of Joining or Date of Hrining 
+   To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+                To_Char(PAR.terminationdate,'MM-DD-YYYY') AS DOR,
+                ttl.name as Desg,
+               PAR.GENERICATTRIBUTE6 as Emplvl,
+                PAR.GENERICATTRIBUTE3 as Empstus,
+                PAR.GENERICBOOLEAN1 AS STATUS,
+              to_real(Replace(replace(INC.genericnumber4,'₹',''),',','')) as BulkSalesValue,
+               to_real(Replace(replace(INC.genericnumber3,'₹',''),',',''))as ApplicableBulkSalesValue,
+             --  to_real(Replace(replace(INC.genericattribute2,'quantity',''),',','')) as UnitSaleswitoutHCBulk,
+              to_real (replace(Replace(replace(INC.genericattribute2,' quantity',''),' qty',''),',','')) as UnitSaleswitoutHCBulk,
+               to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))as ValueSalesWithoutHCBulk,
+             --  to_real(Replace(replace(INC.genericattribute4,'quantity',''),',','')) as HCSalesUnit,
+             to_real (replace(Replace(replace(INC.genericattribute4,' quantity',''),' qty',''),',','')) as HCSalesUnit,
+                to_real(Replace(replace(INC.genericattribute5,'₹',''),',',''))as HCSalesValue,
+             --  to_real(Replace(replace(INC.genericattribute6,'quantity',''),',','')) as EWQty,
+             to_real (replace(Replace(replace(INC.genericattribute6,' quantity',''),' qty',''),',','')) as EWQty,
+               to_real(Replace(replace(INC.genericattribute7,'₹',''),',','')) as EWVQtyalue,
+                to_real(Replace(replace(INC.genericattribute8,'₹',''),',','')) as GrossSales,
+                to_real(Replace(replace(INC.genericattribute9,'₹',''),',',''))as Buyback,
+                to_real(Replace(replace(INC.genericattribute10,'₹',''),',',''))as Discount,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as Netsales,
+                to_real(Replace(replace(INC.genericattribute12,'₹',''),',',''))as SalesRtn,
+                to_real(Replace(replace(INC.genericattribute13,'₹',''),',',''))as CDA,
+                to_real(Replace(replace(INC.genericattribute14,'₹',''),',',''))as Redep,
+                to_real(Replace(replace(INC.genericattribute15,'₹',''),',',''))as InvReversal,
+                to_real(Replace(replace(INC.genericattribute16,'₹',''),',',''))as InvRtnReversal,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as ICMNetSales,
+              to_decimal(Replace(replace(INC.genericnumber1,'₹',''),',',''),20,2)as CnvrtdQtyonBaseVal,
+			    to_real(Replace(replace(INC.genericattribute11,'₹',''),',','')) as budget,
+                to_real(Replace(replace(INC.genericnumber6,'₹',''),',',''))as achd,
+			  to_real(Replace(replace(INC1.genericattribute8,'₹',''),',','')) as GrossSalesytd,
+                to_real(Replace(replace(INC1.genericattribute9,'₹',''),',',''))as Buybackytd,
+                to_real(Replace(replace(INC1.genericattribute10,'₹',''),',',''))as Discountytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as Netsalesytd,
+                to_real(Replace(replace(INC1.genericattribute12,'₹',''),',',''))as SalesRtnytd,
+                to_real(Replace(replace(INC1.genericattribute13,'₹',''),',',''))as CDAytd,
+                to_real(Replace(replace(INC1.genericattribute14,'₹',''),',',''))as Redepytd,
+                to_real(Replace(replace(INC1.genericattribute15,'₹',''),',',''))as InvReversalytd,
+                to_real(Replace(replace(INC1.genericattribute16,'₹',''),',',''))as InvRtnReversalytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as ICMNetSalesytd,
+				 to_real(Replace(replace(INC1.genericattribute11,'₹',''),',','')) as budgetytd,
+                to_real(Replace(replace(INC1.genericnumber6,'₹',''),',',''))as achdytd,
+				PO.NAME as Position,
+                                                    PD.NAME as PERIODNAME
+
+                from 
+
+               "TCMP".CS_PERIOD PD
+               ,"TCMP".cs_INCentive INC
+               ,"TCMP".cs_POsition PO
+                ,"TCMP".cs_PARticipant PAR
+                ,"TCMP".cs_calendar CLR,
+                "TCMP".CS_GAPOSITION GA,
+                "TCMP".CS_TITLE TTL,
+						"TCMP".CS_SALESTRANSACTION ST,
+                "TCMP".CS_TRANSACTIONASSIGNMENT TA,
+				"TCMP".CS_PAYEE PY,
+				"TCMP".cs_INCentive INC1
+				
+   where PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and CLR.calendarseq=2251799813685250
+				AND PY.payeeseq=PAR.payeeseq
+				AND PY.PAYEEID=TA.PAYEEID
+				AND PY.PAYEESEQ=PO.PAYEESEQ
+				AND TA.SALESTRANSACTIONSEQ=ST.SALESTRANSACTIONSEQ
+				and PY.removedate = '2200-01-01 00:00:00.000000000'
+				AND TO_CHAR(ST.COMPENSATIONDATE,'Month YYYY') =PD.NAME
+                and PD.calendarseq = CLR.calendarseq
+                and PD.periodseq = INC.periodseq
+                and PO.payeeseq=INC.payeeseq
+                and PAR.payeeseq=INC.payeeseq
+				 and po.ruleelementownerseq=inc.positionseq
+                and po.ruleelementownerseq=inc1.positionseq
+                and PAR.removedate ='2200-01-01 00:00:00.000000000'
+                and PO.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and GA.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and PO.effectivestartdate=GA.effectivestartdate
+                 and PAR.payeeseq=PO.payeeseq
+                and po.effectivestartdate <=pd.startdate
+                and par.effectivestartdate <=pd.startdate
+				AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE and
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+                				AND TTL.NAME NOT IN ('L0 PC-CSS','L0 PC-CSE','L1 PC','L2 PC','L3 PC')
+				AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+               AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+                                                                and GA.ruleelementownerseq=PO.ruleelementownerseq
+                                                                and PAR.genericattribute1 in('341', '342')
+                                                              
+														        and INC.name='I_L1_REPORTING_MTR'
+                                                                and INC1.name='IR_L1_MTR_YTD_Reporting'
+                                                                AND INC1.POSITIONSEQ=INC.POSITIONSEQ
+																AND INC1.PERIODSEQ=INC.PERIODSEQ
+                                                    and PD.periodseq = INC1.periodseq
+                and PO.payeeseq=INC1.payeeseq
+                and PAR.payeeseq=INC1.payeeseq
+                                                                and (( po.name not in 
+
+(SELECT NAME FROM CS_POSITION WHERE RULEELEMENTOWNERSEQ IN (select managerseq from cs_position where managerseq in(select RULEELEMENTOWNERSEQ 
+from cs_position WHERE titleseq in (select RULEELEMENTOWNERSEQ from cs_title where name in ('L1 IC','L1 CH') ) ) ) AND REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY'))OR 
+(IFNULL(INC.GENERICNUMBER5,0) <>0 OR IFNULL(INC.GENERICNUMBER4,0) <>0 OR IFNULL(to_real(Replace(replace(INC.genericattribute3,'₹',''),',','')),0)<>0 
+OR IFNULL(to_real(Replace(replace(INC.genericattribute5,'₹',''),',','')),0)<>0)
+
+ ))
+
+																order by REG,SALESGROUP))t1 
+GROUP BY t1.reg,t1.SALESGROUP,t1.PERIODNAME,t1.position,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.Matgrp,t1.cycle,t1.Emplvl,T1.BUDGETYTD,T1.ACHDYTD,T1.BUDGET,T1.ACHD );
+
+--------------------------------l2 insert--------------------------------------------------
+truncate table "EXT"."EXT_CUST_MTR_LDRL2F";
+INSERT INTO "EXT"."EXT_CUST_MTR_LDRL2F"
+	select * from (select t1.reg,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.SALESGROUP,t1.Matgrp,t1.cycle,t1.position,NULL,NULL,null,
+	t1.Emplvl,
+	sum(TO_NUMBER(BULKSALESVALUE)),sum(TO_NUMBER(ApplicableBulkSalesValue)),sum(TO_NUMBER(UnitSaleswitoutHCBulk)),sum(TO_NUMBER(VALUESALESWITHOUTHCBULK)),
+	sum(TO_NUMBER(HCSALESUNIT)),sum(TO_NUMBER(HCSALESVALUE)),
+	sum(TO_NUMBER(EWQty)),sum(TO_NUMBER(EWVQtyalue)),
+sum(TO_NUMBER(GROSSSALES)),sum(TO_NUMBER(BUYBACK)),sum(TO_NUMBER(DISCOUNT)),sum(TO_NUMBER(NETSALES)),sum(TO_NUMBER(SALESRTN)),
+sum(TO_NUMBER(CDA)),sum(TO_NUMBER(REDEP)),sum(TO_NUMBER(INVREVERSAL)),sum(TO_NUMBER(INVRTNREVERSAL)),sum(TO_NUMBER(ICMNETSALES))
+,TO_NUMBER(budget),TO_NUMBER(achd),sum(TO_NUMBER(GrossSalesytd)),sum(TO_NUMBER(Buybackytd)),sum(TO_NUMBER(Discountytd)),sum(TO_NUMBER(Netsalesytd))
+,sum(TO_NUMBER(SalesRtnytd)),sum(TO_NUMBER(CDAytd)),sum(TO_NUMBER(Redepytd)),sum(TO_NUMBER(InvReversalytd)),sum(TO_NUMBER(InvRtnReversalytd)),sum(TO_NUMBER(ICMNetSalesytd))
+,TO_NUMBER(budgetytd),TO_NUMBER(achdytd),PERIODNAME from
+(
+
+select * from
+(                                  select distINCt
+                   -- po.managerseq as managerseq,
+                                PO.GENERICATTRIBUTE10 as Reg,
+                PO.GENERICATTRIBUTE11 as SBU,
+                PO.GENERICATTRIBUTE8 as saleszoffice,
+                PO.genericattribute16 AS saleszofficeName,
+                ST.GENERICATTRIBUTE1 as SalesGroup,
+                GA.GENERICATTRIBUTE6 as SalesGroupName,
+                PAR.Userid as EmpNum,
+                ST.PRODUCTNAME as Matgrp,
+                        case when PD.name like 'April %'
+            THEN 1
+         else
+                                  case when PD.name like 'May %'
+            THEN 2
+          else
+                                  case when PD.name like 'June %'
+            THEN 3
+          else
+                                  case when PD.name like 'July %'
+            THEN 4
+          else
+                                  case when PD.name like 'August %'
+            THEN 5
+          else
+                                  case when PD.name like 'September %'
+            THEN 6
+          else
+                                   case when PD.name like 'October %'
+            THEN 7
+          else
+                                   case when PD.name like 'November %'
+            THEN 8
+          else
+                                   case when PD.name like 'December %'
+            THEN 9
+          else
+                                   case when PD.name like 'January %'
+            THEN 10
+          else
+                                   case when PD.name like 'February %'
+            THEN 11
+          else
+                                   case when PD.name like 'March %'
+            THEN 12
+                                  else 0
+end
+end 
+end 
+end 
+end
+end
+end
+end 
+end
+end
+end
+end as CYCLE,
+                PAR.LASTNAME as Emp_Name,
+                ---PAR.HIREDATE as DOJ,
+    To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+   -- To_real(INC.genericnumber2) LOSInMonth,   ---- It should be from date of Joining or Date of Hrining   
+   To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+                To_Char(PAR.terminationdate,'MM-DD-YYYY') AS DOR,
+                TTL.NAME as Desg,
+                                                                
+                PAR.GENERICATTRIBUTE6 as Emplvl,
+                PAR.GENERICATTRIBUTE3 as Empstus,
+                PAR.GENERICBOOLEAN1 AS STATUS,
+             to_real(Replace(replace(INC.genericnumber4,'₹',''),',','')) as BulkSalesValue,
+               to_real(Replace(replace(INC.genericnumber3,'₹',''),',',''))as ApplicableBulkSalesValue,
+               to_real (replace(Replace(replace(LOWER (INC.genericattribute2),'quantity',''),'qty',''),',','')) as UnitSaleswitoutHCBulk,
+               to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))as ValueSalesWithoutHCBulk,
+               to_real (replace(Replace(replace(LOWER(INC.genericattribute4),'quantity',''),'qty',''),',','')) as HCSalesUnit,
+              -- to_real(Replace(replace(INC.genericattribute4,'quantity',''),',','')) as HCSalesUnit,
+                to_real(Replace(replace(LOWER(INC.genericattribute5),'₹',''),',',''))as HCSalesValue,
+                to_real (replace(Replace(replace(LOWER (INC.genericattribute6),'₹',''),'qty',''),',','')) as EWQty,
+               to_real(Replace(replace(INC.genericattribute7,'₹',''),',','')) as EWVQtyalue,
+                to_real(Replace(replace(INC.genericattribute8,'₹',''),',','')) as GrossSales,
+                to_real(Replace(replace(INC.genericattribute9,'₹',''),',',''))as Buyback,
+                to_real(Replace(replace(INC.genericattribute10,'₹',''),',',''))as Discount,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as Netsales,
+                to_real(Replace(replace(INC.genericattribute12,'₹',''),',',''))as SalesRtn,
+                to_real(Replace(replace(INC.genericattribute13,'₹',''),',',''))as CDA,
+                to_real(Replace(replace(INC.genericattribute14,'₹',''),',',''))as Redep,
+                to_real(Replace(replace(INC.genericattribute15,'₹',''),',',''))as InvReversal,
+                to_real(Replace(replace(INC.genericattribute16,'₹',''),',',''))as InvRtnReversal,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as ICMNetSales,
+              to_decimal(Replace(replace(INC.genericnumber1,'₹',''),',',''),20,2)as CnvrtdQtyonBaseVal,
+			    to_real(Replace(replace(CR.genericnumber4,'₹',''),',','')) as budget,
+                to_real(Replace(replace(INC.genericnumber6,'₹',''),',',''))as achd,
+			  to_real(Replace(replace(INC1.genericattribute8,'₹',''),',','')) as GrossSalesytd,
+                to_real(Replace(replace(INC1.genericattribute9,'₹',''),',',''))as Buybackytd,
+                to_real(Replace(replace(INC1.genericattribute10,'₹',''),',',''))as Discountytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as Netsalesytd,
+                to_real(Replace(replace(INC1.genericattribute12,'₹',''),',',''))as SalesRtnytd,
+                to_real(Replace(replace(INC1.genericattribute13,'₹',''),',',''))as CDAytd,
+                to_real(Replace(replace(INC1.genericattribute14,'₹',''),',',''))as Redepytd,
+                to_real(Replace(replace(INC1.genericattribute15,'₹',''),',',''))as InvReversalytd,
+                to_real(Replace(replace(INC1.genericattribute16,'₹',''),',',''))as InvRtnReversalytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as ICMNetSalesytd,
+				 to_real(Replace(replace(INC1.genericattribute11,'₹',''),',','')) as budgetytd,
+                to_real(Replace(replace(INC1.genericnumber6,'₹',''),',',''))as achdytd,
+				PO.NAME as Position,
+                                                    PD.NAME as PERIODNAME
+
+                from 
+
+               "TCMP".CS_PERIOD PD
+               ,"TCMP".cs_INCentive INC
+               ,"TCMP".cs_POsition PO
+                ,"TCMP".cs_PARticipant PAR
+                ,"TCMP".cs_calendar CLR,
+                "TCMP".CS_TITLE TTL,
+                "TCMP".CS_GAPOSITION GA,
+				"TCMP".CS_SALESTRANSACTION ST,
+                "TCMP".CS_TRANSACTIONASSIGNMENT TA,
+				"TCMP".CS_PAYEE PY,	"TCMP".cs_INCentive INC1,
+				"TCMP".cs_credit cr
+				
+
+				
+                where PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and CLR.calendarseq=2251799813685250
+				AND PY.payeeseq=PAR.payeeseq
+				AND PY.PAYEEID=TA.PAYEEID
+				AND PY.PAYEESEQ=PO.PAYEESEQ
+				AND TA.SALESTRANSACTIONSEQ=ST.SALESTRANSACTIONSEQ
+				and PY.removedate = '2200-01-01 00:00:00.000000000'
+				AND TO_CHAR(ST.COMPENSATIONDATE,'Month YYYY') =PD.NAME
+                and PD.calendarseq = CLR.calendarseq
+                and PD.periodseq = INC.periodseq
+                and PO.payeeseq=INC.payeeseq
+                and PAR.payeeseq=INC.payeeseq
+                and PAR.removedate ='2200-01-01 00:00:00.000000000'
+                and PO.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and GA.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and PO.effectivestartdate=GA.effectivestartdate
+                 and po.effectivestartdate <=pd.startdate
+                and par.effectivestartdate <=pd.startdate
+				and po.ruleelementownerseq=inc.positionseq
+                
+                and PAR.payeeseq=PO.payeeseq
+				and cr.payeeseq = po.payeeseq
+                 and pD.periodseq = cr.periodseq
+                AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+                               -- and PO.islast=1
+              --and PAR.islast =1
+                --AND PAR.PAYEESEQ=PO.RULEELEMENTOWNERSEQ
+				
+			
+                				AND TTL.NAME NOT IN ('L0 PC-CSS','L0 PC-CSE','L1 PC','L2 PC','L3 PC')
+				AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+               AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+                                                                and GA.ruleelementownerseq=PO.ruleelementownerseq
+                                                                and PAR.genericattribute1 in('343', '344')
+                                                                and INC.name='IR_L2_MTR_Leadersip_Reporting' 
+                                                                and INC1.name='IR_L2_MTR_Leadership_Reporting_YTD'
+                                                                AND INC1.POSITIONSEQ=INC.POSITIONSEQ
+																AND INC1.PERIODSEQ=INC.PERIODSEQ
+                                                    and PD.periodseq = INC1.periodseq
+													and cr.name='CR_L2_Personal_Sales'
+                and PO.payeeseq=INC1.payeeseq
+                and PAR.payeeseq=INC1.payeeseq
+                                                                 and (( po.name not in 
+
+(SELECT NAME FROM CS_POSITION WHERE RULEELEMENTOWNERSEQ IN (select managerseq from cs_position where managerseq in(select RULEELEMENTOWNERSEQ 
+from cs_position WHERE titleseq in (select RULEELEMENTOWNERSEQ from cs_title where name in ('L2 ZH','L2 CSS') ) ) ) AND REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY'))OR 
+(INC.GENERICNUMBER5 <>0 OR INC.GENERICNUMBER4 <>0 OR to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))<>0 
+OR to_real(Replace(replace(INC.genericattribute5,'₹',''),',',''))<>0)
+
+ ))
+
+																order by REG,SALESGROUP))t1 
+GROUP BY t1.reg,t1.SALESGROUP,t1.PERIODNAME,t1.position,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.Matgrp,t1.cycle,t1.Emplvl,T1.BUDGET,T1.ACHD,T1.BUDGETYTD,T1.ACHDYTD  );
+
+
+
+----------------------------l3 insert--------------------------------------------------
+--select * from "EXT"."EXT_CUST_MTR_LDR3";
+    
+        truncate table "EXT"."EXT_CUST_MTR_LDRL3F";
+INSERT INTO "EXT"."EXT_CUST_MTR_LDRL3F"
+select * from (select t1.reg,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.SALESGROUP,t1.Matgrp,t1.cycle,t1.position,NULL,NULL,null,
+	t1.Emplvl,
+	sum(TO_NUMBER(BULKSALESVALUE)),sum(TO_NUMBER(ApplicableBulkSalesValue)),sum(TO_NUMBER(UnitSaleswitoutHCBulk)),sum(TO_NUMBER(VALUESALESWITHOUTHCBULK)),
+	sum(TO_NUMBER(HCSALESUNIT)),sum(TO_NUMBER(HCSALESVALUE)),
+	sum(TO_NUMBER(EWQty)),sum(TO_NUMBER(EWVQtyalue)),
+sum(TO_NUMBER(GROSSSALES)),sum(TO_NUMBER(BUYBACK)),sum(TO_NUMBER(DISCOUNT)),sum(TO_NUMBER(NETSALES)),sum(TO_NUMBER(SALESRTN)),
+sum(TO_NUMBER(CDA)),sum(TO_NUMBER(REDEP)),sum(TO_NUMBER(INVREVERSAL)),sum(TO_NUMBER(INVRTNREVERSAL)),sum(TO_NUMBER(ICMNETSALES))
+,TO_NUMBER(budget),TO_NUMBER(achd),sum(TO_NUMBER(GrossSalesytd)),sum(TO_NUMBER(Buybackytd)),sum(TO_NUMBER(Discountytd)),sum(TO_NUMBER(Netsalesytd))
+,sum(TO_NUMBER(SalesRtnytd)),sum(TO_NUMBER(CDAytd)),sum(TO_NUMBER(Redepytd)),sum(TO_NUMBER(InvReversalytd)),sum(TO_NUMBER(InvRtnReversalytd)),sum(TO_NUMBER(ICMNetSalesytd))
+,TO_NUMBER(budgetytd),TO_NUMBER(achdytd),PERIODNAME from
+(
+
+select * from
+(                select distINCt
+                   -- po.managerseq as managerseq,
+                                PO.GENERICATTRIBUTE10 as Reg,
+                PO.GENERICATTRIBUTE11 as SBU,
+                PO.GENERICATTRIBUTE8 as saleszoffice,
+                PO.genericattribute16 AS saleszofficeName,
+                PO.GENERICATTRIBUTE9 as SalesGroup,
+                GA.GENERICATTRIBUTE6 as SalesGroupName,
+                PAR.Userid as EmpNum,
+                PO.GENERICATTRIBUTE2 as Matgrp,
+                        case when PD.name like 'April %'
+            THEN 1
+         else
+                                  case when PD.name like 'May %'
+            THEN 2
+          else
+                                  case when PD.name like 'June %'
+            THEN 3
+          else
+                                  case when PD.name like 'July %'
+            THEN 4
+          else
+                                  case when PD.name like 'August %'
+            THEN 5
+          else
+                                  case when PD.name like 'September %'
+            THEN 6
+          else
+                                   case when PD.name like 'October %'
+            THEN 7
+          else
+                                   case when PD.name like 'November %'
+            THEN 8
+          else
+                                   case when PD.name like 'December %'
+            THEN 9
+          else
+                                   case when PD.name like 'January %'
+            THEN 10
+          else
+                                   case when PD.name like 'February %'
+            THEN 11
+          else
+                                   case when PD.name like 'March %'
+            THEN 12
+                                  else 0
+end
+end 
+end 
+end 
+end
+end
+end
+end 
+end
+end
+end
+end as CYCLE,
+                PAR.LASTNAME as Emp_Name,
+                ---PAR.HIREDATE as DOJ,
+    To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+   -- To_real(INC.genericnumber2) LOSInMonth,   ---- It should be from date of Joining or Date of Hrining 
+   To_real(months_between (TO_DATE(TO_CHAR(PAR.HIREDATE,'MM-YYYY'),'MM-YYYY'),to_date(PD.NAME,'MONTH YYYY'))) LOSInMonth,
+                To_Char(PAR.terminationdate,'MM-DD-YYYY') AS DOR,
+                TTL.NAME as Desg,
+                                                                
+                PAR.GENERICATTRIBUTE6 as Emplvl,
+                PAR.GENERICATTRIBUTE3 as Empstus,
+                PAR.GENERICBOOLEAN1 AS STATUS,
+             to_real(Replace(replace(INC.genericnumber4,'₹',''),',','')) as BulkSalesValue,
+               to_real(Replace(replace(INC.genericnumber3,'₹',''),',',''))as ApplicableBulkSalesValue,
+               to_real (replace(Replace(replace(LOWER (INC.genericattribute2),'quantity',''),'qty',''),',','')) as UnitSaleswitoutHCBulk,
+               to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))as ValueSalesWithoutHCBulk,
+               to_real (replace(Replace(replace(LOWER(INC.genericattribute4),'quantity',''),'qty',''),',','')) as HCSalesUnit,
+              -- to_real(Replace(replace(INC.genericattribute4,'quantity',''),',','')) as HCSalesUnit,
+                to_real(Replace(replace(LOWER(INC.genericattribute5),'₹',''),',',''))as HCSalesValue,
+                to_real (replace(Replace(replace(LOWER (INC.genericattribute6),'quantity',''),'qty',''),',','')) as EWQty,
+               to_real(Replace(replace(INC.genericattribute7,'₹',''),',','')) as EWVQtyalue,
+                to_real(Replace(replace(INC.genericattribute8,'₹',''),',','')) as GrossSales,
+                to_real(Replace(replace(INC.genericattribute9,'₹',''),',',''))as Buyback,
+                to_real(Replace(replace(INC.genericattribute10,'₹',''),',',''))as Discount,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as Netsales,
+                to_real(Replace(replace(INC.genericattribute12,'₹',''),',',''))as SalesRtn,
+                to_real(Replace(replace(INC.genericattribute13,'₹',''),',',''))as CDA,
+                to_real(Replace(replace(INC.genericattribute14,'₹',''),',',''))as Redep,
+                to_real(Replace(replace(INC.genericattribute15,'₹',''),',',''))as InvReversal,
+                to_real(Replace(replace(INC.genericattribute16,'₹',''),',',''))as InvRtnReversal,
+                to_real(Replace(replace(INC.genericnumber5,'₹',''),',',''))as ICMNetSales,
+              to_decimal(Replace(replace(INC.genericnumber1,'₹',''),',',''),20,2)as CnvrtdQtyonBaseVal,
+			    to_real(Replace(replace(CR.genericnumber4,'₹',''),',','')) as budget,
+                to_real(Replace(replace(INC.genericnumber6,'₹',''),',',''))as achd,
+			  to_real(Replace(replace(INC1.genericattribute8,'₹',''),',','')) as GrossSalesytd,
+                to_real(Replace(replace(INC1.genericattribute9,'₹',''),',',''))as Buybackytd,
+                to_real(Replace(replace(INC1.genericattribute10,'₹',''),',',''))as Discountytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as Netsalesytd,
+                to_real(Replace(replace(INC1.genericattribute12,'₹',''),',',''))as SalesRtnytd,
+                to_real(Replace(replace(INC1.genericattribute13,'₹',''),',',''))as CDAytd,
+                to_real(Replace(replace(INC1.genericattribute14,'₹',''),',',''))as Redepytd,
+                to_real(Replace(replace(INC1.genericattribute15,'₹',''),',',''))as InvReversalytd,
+                to_real(Replace(replace(INC1.genericattribute16,'₹',''),',',''))as InvRtnReversalytd,
+                to_real(Replace(replace(INC1.genericnumber5,'₹',''),',',''))as ICMNetSalesytd,
+				 to_real(Replace(replace(INC1.genericattribute11,'₹',''),',','')) as budgetytd,
+                to_real(Replace(replace(INC1.genericnumber6,'₹',''),',',''))as achdytd,
+                PO.NAME as Position,
+                                                    PD.NAME as PERIODNAME
+
+                from 
+
+               "TCMP".CS_PERIOD PD
+               ,"TCMP".cs_INCentive INC
+               ,"TCMP".cs_POsition PO
+                ,"TCMP".cs_PARticipant PAR
+                ,"TCMP".cs_calendar CLR,
+                "TCMP".CS_TITLE TTL,
+                "TCMP".CS_GAPOSITION GA,
+				"TCMP".CS_SALESTRANSACTION ST,
+                "TCMP".CS_TRANSACTIONASSIGNMENT TA,
+				"TCMP".CS_PAYEE PY,	"TCMP".cs_INCentive INC1,
+				"TCMP".cs_credit cr
+				
+  where PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and CLR.calendarseq=2251799813685250
+				AND PY.payeeseq=PAR.payeeseq
+				AND PY.PAYEEID=TA.PAYEEID
+				AND PY.PAYEESEQ=PO.PAYEESEQ
+				AND TA.SALESTRANSACTIONSEQ=ST.SALESTRANSACTIONSEQ
+				and PY.removedate = '2200-01-01 00:00:00.000000000'
+				AND TO_CHAR(ST.COMPENSATIONDATE,'Month YYYY') =PD.NAME
+                and PD.calendarseq = CLR.calendarseq
+                and PD.periodseq = INC.periodseq
+                and PO.payeeseq=INC.payeeseq
+                and PAR.payeeseq=INC.payeeseq
+				and po.ruleelementownerseq=inc.positionseq
+               
+                and PAR.removedate ='2200-01-01 00:00:00.000000000'
+                and PO.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and GA.removedate = '2200-01-01 00:00:00.000000000'
+                                                                and PO.effectivestartdate=GA.effectivestartdate
+               and po.effectivestartdate <=pd.startdate
+                and par.effectivestartdate <=pd.startdate
+				AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+                AND TTL.NAME NOT IN ('L0 PC-CSS','L0 PC-CSE','L1 PC','L2 PC','L3 PC')
+				AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+               AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+                and PAR.payeeseq=PO.payeeseq
+				and cr.payeeseq = po.payeeseq
+                 and pd.periodseq = cr.periodseq
+                 
+                                                                and GA.ruleelementownerseq=PO.ruleelementownerseq
+                                                                and PAR.genericattribute1 in('345', '346','347')
+                                                                and INC.name='IR_L3_MTR_Leadersip_Reporting' 
+                                                                and INC1.name='IR_L3_MTR_Leadership_Reporting_YTD'
+																and cr.name='CR_L3_Personal_Sales'
+                                                                AND INC1.POSITIONSEQ=INC.POSITIONSEQ
+																AND INC1.PERIODSEQ=INC.PERIODSEQ
+                                                    and PD.periodseq = INC1.periodseq
+                and PO.payeeseq=INC1.payeeseq
+                and PAR.payeeseq=INC1.payeeseq
+															         and (( po.name not in 
+
+(SELECT NAME FROM CS_POSITION WHERE RULEELEMENTOWNERSEQ IN (select managerseq from cs_position where managerseq in(select RULEELEMENTOWNERSEQ 
+from cs_position WHERE titleseq in (select RULEELEMENTOWNERSEQ from cs_title where name in ('L3 CLH','L3 PC') ) ) ) AND REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY'))OR 
+(INC.GENERICNUMBER5 <>0 OR INC.GENERICNUMBER4 <>0 OR to_real(Replace(replace(INC.genericattribute3,'₹',''),',',''))<>0 
+OR to_real(Replace(replace(INC.genericattribute5,'₹',''),',',''))<>0)
+
+ ))
+
+																order by REG,SALESGROUP))t1 
+GROUP BY t1.reg,t1.SALESGROUP,t1.PERIODNAME,t1.position,t1.SBU,t1.saleszoffice,t1.saleszofficeName,t1.Matgrp,t1.cycle,t1.Emplvl,T1.BUDGET,T1.ACHD,T1.BUDGETYTD,T1.ACHDYTD );
+
+
+																
+----------------------------INSERT INTO L0,L1,l2,L3-------
+truncate table "EXT"."EXT_CUST_MTR_LDRG";
+
+INSERT INTO "EXT"."EXT_CUST_MTR_LDRG"
+
+select * from (select reg0,SBU0,saleszoffice0,saleszofficeName0,SALESGROUP0,Matgrp0,cycle0,POSITION0,MANAGER0,NULL,NULL,NULL,BULKSALESVALUE0,APPLICABLEBULKSALESVALUE0,UNISALESWITHOUTHCBULK0,
+VALUESALESWITHOUTHCBULK0,HCSALESUNIT0,HCSALESVALUE0,EXTENDEDWARRANTYQTY0,EXTENDEDWARRANTYVALUE0,
+GROSSSALES0,BUYBACK0,DISCOUNT0,NETSALES0,SALESRTN0,
+CDA0,REDEP0,INVREVERSAL0,INVRTNREVERSAL0,ICMNETSALES0,BUDGET0,
+	ACHD0,
+	GROSSSALESYTD0,
+	BUYBACKYTD0,
+	DISCOUNTYTD0,
+	NETSALESYTD0,
+	SALESRTNYTD0,
+	CDAYTD0,
+	REDEPYTD0,
+	INVREVERSALYTD0,
+	INVRTNREVERSALYTD0,
+	ICMNETSALESYTD0,
+	BUDGETYTD0,
+	ACHDYTD0,
+	PERIODNAMEYTD0 from "EXT"."EXT_CUST_MTR_LDRL0F" 
+union 
+select reg1,SBU1,saleszoffice1,saleszofficeName1,SALESGROUP1,Matgrp1,cycle1,POSITION1,MANAGER1,NULL,NULL,NULL,BULKSALESVALUE1,APPLICABLEBULKSALESVALUE1,UNISALESWITHOUTHCBULK1,
+VALUESALESWITHOUTHCBULK1,HCSALESUNIT1,HCSALESVALUE1,EXTENDEDWARRANTYQTY1,EXTENDEDWARRANTYVALUE1,
+GROSSSALES1,BUYBACK1,DISCOUNT1,NETSALES1,SALESRTN1,
+CDA1,REDEP1,INVREVERSAL1,INVRTNREVERSAL1,ICMNETSALES1,BUDGET1,
+	ACHD1,
+	GROSSSALESYTD1,
+	BUYBACKYTD1,
+	DISCOUNTYTD1,
+	NETSALESYTD1,
+	SALESRTNYTD1,
+	CDAYTD1,
+	REDEPYTD1,
+	INVREVERSALYTD1,
+	INVRTNREVERSALYTD1,
+	ICMNETSALESYTD1,
+	BUDGETYTD1,
+	ACHDYTD1,
+	PERIODNAMEYTD1  from "EXT"."EXT_CUST_MTR_LDRL1F" 
+UNION
+select reg2,SBU2,saleszoffice2,saleszofficeName2,SALESGROUP2,Matgrp2,cycle2,POSITION2,MANAGER2,NULL,NULL,NULL,BULKSALESVALUE2,APPLICABLEBULKSALESVALUE2,UNISALESWITHOUTHCBULK2,VALUESALESWITHOUTHCBULK2,
+HCSALESUNIT2,HCSALESVALUE2,EXTENDEDWARRANTYQTY2,EXTENDEDWARRANTYVALUE2,
+GROSSSALES2,BUYBACK2,DISCOUNT2,NETSALES2,SALESRTN2,
+CDA2,REDEP2,INVREVERSAL2,INVRTNREVERSAL2,ICMNETSALES2,BUDGET2,
+	ACHD2,
+	GROSSSALESYTD2,
+	BUYBACKYTD2,
+	DISCOUNTYTD2,
+	NETSALESYTD2,
+	SALESRTNYTD2,
+	CDAYTD2,
+	REDEPYTD2,
+	INVREVERSALYTD2,
+	INVRTNREVERSALYTD2,
+	ICMNETSALESYTD2,
+	BUDGETYTD2,
+	ACHDYTD2,
+	PERIODNAMEYTD2  FROM "EXT"."EXT_CUST_MTR_LDRL2F" 
+UNION 
+select reg3,SBU3,saleszoffice3,saleszofficeName3,SALESGROUP3,Matgrp3,cycle3,POSITION3,MANAGER3,NULL,NULL,NULL,BULKSALESVALUE3,APPLICABLEBULKSALESVALUE3,
+UNISALESWITHOUTHCBULK3,VALUESALESWITHOUTHCBULK3,HCSALESUNIT3,HCSALESVALUE3,EXTENDEDWARRANTYQTY3,EXTENDEDWARRANTYVALUE3,
+GROSSSALES3,BUYBACK3,DISCOUNT3,NETSALES3,SALESRTN3,
+CDA3,REDEP3,INVREVERSAL3,INVRTNREVERSAL3,ICMNETSALES3,BUDGET3,
+	ACHD3,
+	GROSSSALESYTD3,
+	BUYBACKYTD3,
+	DISCOUNTYTD3,
+	NETSALESYTD3,
+	SALESRTNYTD3,
+	CDAYTD3,
+	REDEPYTD3,
+	INVREVERSALYTD3,
+	INVRTNREVERSALYTD3,
+	ICMNETSALESYTD3,
+	BUDGETYTD3,
+	ACHDYTD3,
+	PERIODNAMEYTD3  FROM "EXT"."EXT_CUST_MTR_LDRL3F") ;
+	
+	-----------------------------new req--------------------------------
+	TRUNCATE TABLE  "EXT"."EXT_CUST_MTR_LDRG_SUB";
+	
+	INSERT INTO  "EXT"."EXT_CUST_MTR_LDRG_SUB"
+select 	REG ,
+	SBU ,
+	SALESZOFFICE ,
+	SALESZOFFICENAME ,
+	A.SALESGROUP ,
+	MATGRP ,
+	CYCLE ,
+	POSITION ,
+	B.MANAGERNAME MANAGER ,
+	A.MANAGERNAME ,
+	MANAGERDESG ,
+	EMPLVL ,
+	BULKSALESVALUE ,
+	APPLICABLEBULKSALESVALUE ,
+	UNISALESWITHOUTHCBULK ,
+	VALUESALESWITHOUTHCBULK ,
+	HCSALESUNIT ,
+	HCSALESVALUE ,
+	EXTENDEDWARRANTYQTY ,
+	EXTENDEDWARRANTYVALUE ,
+	GROSSSALES ,
+	BUYBACK ,
+	DISCOUNT ,
+	NETSALES ,
+	SALESRTN ,
+	CDA ,
+	REDEP ,
+	INVREVERSAL ,
+	INVRTNREVERSAL ,
+	ICMNETSALES ,
+	BUDGET ,
+	ACHD ,
+	GROSSSALESYTD ,
+	BUYBACKYTD ,
+	DISCOUNTYTD ,
+	NETSALESYTD ,
+	SALESRTNYTD ,
+	CDAYTD ,
+	REDEPYTD ,
+	INVREVERSALYTD ,
+	INVRTNREVERSALYTD ,
+	ICMNETSALESYTD ,
+	BUDGETYTD ,
+	ACHDYTD ,
+	PERIODNAMEYTD from "EXT"."EXT_CUST_MTR_LDRG" a, "EXT"."MANAGERSUBORDINATES_T" b
+where a.position=b.positionname
+--and a.position='30195337'
+and a.periodnameytd=b.periodname;
+	
+
+--------------------MERGE STATEMENTFOR MANAGER ----------------------------------------------------------
+/*
+merge into "EXT"."EXT_CUST_MTR_LDRG_SUB" t1
+using
+--select * from
+"EXT"."MANAGERSUBORDINATES_T" t2
+
+on t2.positionname=t1.position
+and t1.periodnameYTD=t2.periodname
+and t1.salesgroup=t2.salesgroup
+
+when matched then update set t1.manager=t2.managername;
+*/
+
+
+
+
+
+
+
+--------------------UPDATE MANAGER ----------------------------------------------------------
+
+
+ update  "EXT"."EXT_CUST_MTR_LDRG_SUB"  set manager=POSITION WHERE MANAGER IS NULL;
+ 
+ 
+---------------where sg is null------------------
+/*
+merge into "EXT"."EXT_CUST_MTR_LDRG_SUB" t1
+using
+(select * from "EXT"."MANAGERSUBORDINATES_T" where salesgroup is null) t2
+
+on t2.positionname=t1.position
+and t1.periodnameYTD=t2.periodname
+and t1.manager=t1.position
+--and t1.salesgroup=t2.salesgroup
+
+when matched then update set t1.manager=t2.managername;
+
+*/
+
+-----------------------LDRF1---------------------------------
+TRUNCATE TABLE  "EXT"."EXT_CUST_MTR_LDRG1";
+
+
+
+INSERT INTO "EXT"."EXT_CUST_MTR_LDRG1"
+select reg,SBU,saleszoffice,saleszofficeName,SALESGROUP,Matgrp,cycle,MANAGER,NULL,NULL,NULL,BULKSALESVALUE,APPLICABLEBULKSALESVALUE,UNISALESWITHOUTHCBULK,VALUESALESWITHOUTHCBULK,HCSALESUNIT,HCSALESVALUE,EXTENDEDWARRANTYQTY,EXTENDEDWARRANTYVALUE,
+GROSSSALES,BUYBACK,DISCOUNT,NETSALES,SALESRTN,
+CDA,REDEP,INVREVERSAL,INVRTNREVERSAL,ICMNETSALES,BUDGET,
+	ACHD,
+	GROSSSALESYTD,
+	BUYBACKYTD,
+	DISCOUNTYTD,
+	NETSALESYTD,
+	SALESRTNYTD,
+	CDAYTD,
+	REDEPYTD,
+	INVREVERSALYTD,
+	INVRTNREVERSALYTD,
+	ICMNETSALESYTD,
+	BUDGETYTD,
+	ACHDYTD,
+	PERIODNAMEYTD FROM "EXT"."EXT_CUST_MTR_LDRG_SUB";
+	
+	----------------------TEST---------------
+	INSERT INTO  "EXT"."EXT_CUST_MTR_LDRG1"
+select 	REG ,
+	SBU ,
+	SALESZOFFICE ,
+	SALESZOFFICENAME ,
+    SALESGROUP ,
+	MATGRP ,
+	CYCLE ,
+	POSITION MANAGER,
+	--B.MANAGERNAME MANAGER ,
+	NULL ,
+	NULL ,
+	NULL ,
+	BULKSALESVALUE ,
+	APPLICABLEBULKSALESVALUE ,
+	UNISALESWITHOUTHCBULK ,
+	VALUESALESWITHOUTHCBULK ,
+	HCSALESUNIT ,
+	HCSALESVALUE ,
+	EXTENDEDWARRANTYQTY ,
+	EXTENDEDWARRANTYVALUE ,
+	GROSSSALES ,
+	BUYBACK ,
+	DISCOUNT ,
+	NETSALES ,
+	SALESRTN ,
+	CDA ,
+	REDEP ,
+	INVREVERSAL ,
+	INVRTNREVERSAL ,
+	ICMNETSALES ,
+	BUDGET ,
+	ACHD ,
+	GROSSSALESYTD ,
+	BUYBACKYTD ,
+	DISCOUNTYTD ,
+	NETSALESYTD ,
+	SALESRTNYTD ,
+	CDAYTD ,
+	REDEPYTD ,
+	INVREVERSALYTD ,
+	INVRTNREVERSALYTD ,
+	ICMNETSALESYTD ,
+	BUDGETYTD ,
+	ACHDYTD ,
+	PERIODNAMEYTD from "EXT"."EXT_CUST_MTR_LDRG" 
+where (POSITION,SALESGROUP,PERIODNAMEYTD)NOT IN (SELECT MANAGER,SALESGROUP,PERIODNAMEYTD FROM ext.EXT_CUST_MTR_LDRG1);
+
+    ---------------------GROUP BY SALESGROUP--------------------
+ TRUNCATE TABLE "EXT"."EXT_CUST_MTR_LDRG2";
+	  INSERT INTO "EXT"."EXT_CUST_MTR_LDRG2" 
+select  reg,SBU,saleszoffice,saleszofficeName,Salesgroup,Matgrp,cycle,Manager,null,MANAGERDESG,null,sum(TO_NUMBER(BULKSALESVALUE)),
+sum(TO_NUMBER(APPLICABLEBULKSALESVALUE)),sum(TO_NUMBER(UNISALESWITHOUTHCBULK)),sum(TO_NUMBER(VALUESALESWITHOUTHCBULK)),sum(TO_NUMBER(HCSALESUNIT)),sum(TO_NUMBER(HCSALESVALUE)),sum(TO_NUMBER(EXTENDEDWARRANTYQTY)),sum(TO_NUMBER(EXTENDEDWARRANTYVALUE)),
+sum(TO_NUMBER(GROSSSALES)),sum(TO_NUMBER(BUYBACK)),sum(TO_NUMBER(DISCOUNT)),sum(TO_NUMBER(NETSALES)),sum(TO_NUMBER(SALESRTN)),
+sum(TO_NUMBER(CDA)),sum(TO_NUMBER(REDEP)),sum(TO_NUMBER(INVREVERSAL)),sum(TO_NUMBER(INVRTNREVERSAL)),sum(TO_NUMBER(ICMNETSALES)),
+TO_NUMBER(BUDGET),
+case when TO_NUMBER(BUDGET)=0 then 0 else
+sum(TO_NUMBER(NETSALES))/(TO_NUMBER(BUDGET)) end as ACHD,
+--sum(TO_NUMBER(ACHD)),
+sum(TO_NUMBER(GROSSSALESYTD)),
+sum(TO_NUMBER(BUYBACKYTD)),
+sum(TO_NUMBER(DISCOUNTYTD)),
+sum(TO_NUMBER(NETSALESYTD)),
+sum(TO_NUMBER(SALESRTNYTD)),
+sum(TO_NUMBER(CDAYTD)),
+sum(TO_NUMBER(REDEPYTD)),
+sum(TO_NUMBER(INVREVERSALYTD)),
+sum(TO_NUMBER(INVRTNREVERSALYTD)),
+sum(TO_NUMBER(ICMNETSALESYTD)),
+TO_NUMBER(BUDGET)*cycle BUDGETYTD,
+case when TO_NUMBER(BUDGET)=0 then 0 else
+sum(TO_NUMBER(NETSALESYTD))/(TO_NUMBER(BUDGET)*cycle) end as ACHDYTD,
+PERIODNAMEYTD from "EXT"."EXT_CUST_MTR_LDRG1" 
+where 
+ REG =(CASE WHEN v_Region ='' THEN 
+    REG
+  ELSE
+    v_Region
+  END)
+                and SBU =(CASE WHEN V_SBU ='' THEN 
+    SBU 
+  ELSE
+    V_SBU
+  END)
+  and SALESZOFFICE =(CASE WHEN V_SALEZOFFICE ='' THEN 
+   SALESZOFFICE
+  ELSE
+   V_SALEZOFFICE
+  END)
+  and  SALESGROUP =(CASE WHEN V_SALESGROUP ='' THEN 
+    SALESGROUP 
+  ELSE
+    V_SALESGROUP
+  END)
+--GROUP BY SALESGROUP,PERIODNAME;
+GROUP BY reg,Salesgroup,Manager,SBU,saleszoffice,saleszofficeName,Matgrp,cycle,Manager,MANAGERDESG,PERIODNAMEYTD,BUDGET ORDER BY Manager;
+
+
+  INSERT INTO "EXT"."EXT_CUST_MTR_LDRG2" 
+  (SALESZOFFICENAME,Manager,BULKSALESVALUE,APPLICABLEBULKSALESVALUE,UNISALESWITHOUTHCBULK,VALUESALESWITHOUTHCBULK,HCSALESUNIT,HCSALESVALUE,EXTENDEDWARRANTYQTY,EXTENDEDWARRANTYVALUE,
+  GROSSSALES,BUYBACK,DISCOUNT,NETSALES,SALESRTN,
+CDA,REDEP,INVREVERSAL,INVRTNREVERSAL,ICMNETSALES,BUDGET,
+	ACHD,
+	GROSSSALESYTD,
+	BUYBACKYTD,
+	DISCOUNTYTD,
+	NETSALESYTD,
+	SALESRTNYTD,
+	CDAYTD,
+	REDEPYTD,
+	INVREVERSALYTD,
+	INVRTNREVERSALYTD,
+	ICMNETSALESYTD,
+	BUDGETYTD,
+	ACHDYTD,
+	PERIODNAMEYTD)
+select  'TOTAL',Manager,sum(TO_NUMBER(BULKSALESVALUE)),
+sum(TO_NUMBER(APPLICABLEBULKSALESVALUE)),sum(TO_NUMBER(UNISALESWITHOUTHCBULK)),sum(TO_NUMBER(VALUESALESWITHOUTHCBULK)),sum(TO_NUMBER(HCSALESUNIT)),sum(TO_NUMBER(HCSALESVALUE)),
+sum(TO_NUMBER(EXTENDEDWARRANTYQTY)),sum(TO_NUMBER(EXTENDEDWARRANTYVALUE)),
+sum(TO_NUMBER(GROSSSALES)),sum(TO_NUMBER(BUYBACK)),sum(TO_NUMBER(DISCOUNT)),sum(TO_NUMBER(NETSALES)),sum(TO_NUMBER(SALESRTN)),
+sum(TO_NUMBER(CDA)),sum(TO_NUMBER(REDEP)),sum(TO_NUMBER(INVREVERSAL)),sum(TO_NUMBER(INVRTNREVERSAL)),sum(TO_NUMBER(ICMNETSALES)),sum(TO_NUMBER(BUDGET)),
+case when sum(TO_NUMBER(BUDGET))=0 then 0 else
+sum(TO_NUMBER(NETSALES))/sum(TO_NUMBER(BUDGET)) end as ACHD ,
+sum(TO_NUMBER(GROSSSALESYTD)),
+sum(TO_NUMBER(BUYBACKYTD)),
+sum(TO_NUMBER(DISCOUNTYTD)),
+sum(TO_NUMBER(NETSALESYTD)),
+sum(TO_NUMBER(SALESRTNYTD)),
+sum(TO_NUMBER(CDAYTD)),
+sum(TO_NUMBER(REDEPYTD)),
+sum(TO_NUMBER(INVREVERSALYTD)),
+sum(TO_NUMBER(INVRTNREVERSALYTD)),
+sum(TO_NUMBER(ICMNETSALESYTD)),
+sum(TO_NUMBER(BUDGETYTD)),
+case when sum(TO_NUMBER(BUDGETYTD))=0 then 0 else
+sum(TO_NUMBER(NETSALESYTD))/sum(TO_NUMBER(BUDGETYTD)) end as ACHDYTD ,
+--TO_NUMBER(ACHDYTD),
+PERIODNAMEYTD from "EXT"."EXT_CUST_MTR_LDRG2" 
+--GROUP BY SALESGROUP,PERIODNAME;
+GROUP BY Manager,PERIODNAMEYTD ORDER BY Manager;
+
+ --------------------UPDATE MANAGERDESG,EMPLVL AND EMPNAME ----------------------------------------------------------
+
+
+
+merge into "EXT"."EXT_CUST_MTR_LDRG2" t1
+using
+--select * from
+(SELECT PAR.GENERICATTRIBUTE6,ttl.name,PAR.LASTNAME,PO.NAME AS POSITIONNAME,PD.NAME AS PERIODNAME
+FROM CS_PARTICIPANT PAR,CS_POSITION PO, CS_PERIOD PD, cs_title ttl  WHERE 
+PAR.PAYEESEQ=PO.PAYEESEQ
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE
+AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PAR.EFFECTIVESTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PAR.EFFECTIVEENDDATE
+AND pd.calendarseq=2251799813685250
+and PAR.removedate ='2200-01-01 00:00:00.000000000'
+ and PO.removedate = '2200-01-01 00:00:00.000000000'
+ AND TTL.RULEELEMENTOWNERSEQ= PO.titleseq
+ AND TTL.REMOVEDATE = TO_DATE ('01-JAN-2200', 'DD-MON-YYYY')
+ AND PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and PD.calendarseq=2251799813685250)t2
+
+on t2.POSITIONNAME=t1.manager
+and t1.periodnameYTD=t2.periodname
+
+--and t1.salesgroup=t2.salesgroup
+
+when matched then update set t1.MANAGERNAME=t2.LASTNAME,t1.MANAGERDESG=t2.name,t1.EMPLVL=t2.GENERICATTRIBUTE6;
+---------------------------------------------------				
+
+TRUNCATE TABLE "EXT"."EXT_CUST_MTR_LEADERSH";
+insert into "EXT"."EXT_CUST_MTR_LEADERSH"
+select * from (select distinct * from (select
+	REG,
+	SBU,
+	SALESZOFFICE,
+	SALESZOFFICENAME,
+	Salesgroup,
+	Matgrp,
+	cycle,
+	Manager,
+	MANAGERNAME,
+	MANAGERDESG,
+	EMPLVL,
+		BULKSALESVALUE,
+		APPLICABLEBULKSALESVALUE,
+		UNISALESWITHOUTHCBULK,
+	VALUESALESWITHOUTHCBULK,
+	HCSALESUNIT,
+	HCSALESVALUE
+	,EXTENDEDWARRANTYQTY,EXTENDEDWARRANTYVALUE,
+	GROSSSALES,
+	BUYBACK,
+	DISCOUNT,
+	
+	SALESRTN,
+	CDA,
+	REDEP,
+	INVREVERSAL,
+	INVRTNREVERSAL,
+	NETSALES,
+	ICMNETSALES,
+	BUDGET,
+	ACHD,
+	GROSSSALESYTD,
+	BUYBACKYTD,
+	DISCOUNTYTD,
+	
+	SALESRTNYTD,
+	CDAYTD,
+	REDEPYTD,
+	INVREVERSALYTD,
+	INVRTNREVERSALYTD,
+	NETSALESYTD,
+	ICMNETSALESYTD,
+	BUDGETYTD,
+	ACHDYTD,
+	PERIODNAMEYTD
+ from "EXT"."EXT_CUST_MTR_LDRG2" 
+where manager in (select DISTINCT PO.name from cs_position PO,CS_PERIOD PD  where PO.payeeseq is not null AND PO.removedate ='2200-01-01 00:00:00.000000000' AND TO_DATE('01 '||Pd.NAME,'DD Month YYYY') >= PO.CREDITSTARTDATE AND
+TO_DATE('01 '||Pd.NAME,'DD Month YYYY') < PO.CREDITENDDATE AND PD.PERIODSEQ BETWEEN V_PERIODSEQ1 AND  V_PERIODSEQ2 and PD.calendarseq=2251799813685250)
+
+--AND MANAGER IN (select DISTINCT name from cs_position where removedate ='2200-01-01 00:00:00.000000000' AND MANAGERSEQ IS NOT NULL AND TITLESEQ IN ('L0 CS-CSE','L0 FL','L0 CS-CSS/CSE','L0 CS-PST','L0 SC','L0 CS-CSS')
+order by MANAGER,SALESGROUP DESC, TO_DATE(PERIODNAMEYTD,'Month YYYY'))  WHERE MANAGER NOT IN (select DISTINCT name from cs_position where removedate ='2200-01-01 00:00:00.000000000' AND MANAGERSEQ IS NULL AND TITLESEQ IN
+(SELECT ruleelementownerseq FROM CS_TITLE WHERE NAME IN ('L0 CS-CSE','L0 FL','L0 CS-CSS/CSE','L0 CS-PST','L0 SC','L0 CS-CSS')))) where managerdesg not in
+ (SELECT name FROM CS_TITLE 
+WHERE NAME IN ('L0 CS-CSE','L0 FL','L0 CS-CSS/CSE','L0 CS-PST','L0 SC','L0 CS-CSS')and  removedate ='2200-01-01 00:00:00.000000000' )
+		
+		/*		and REG =(CASE WHEN v_Region ='' THEN 
+    REG
+  ELSE
+    v_Region
+  END)
+                and SBU =(CASE WHEN V_SBU ='' THEN 
+    SBU 
+  ELSE
+    V_SBU
+  END)
+  and SALESZOFFICE =(CASE WHEN V_SALEZOFFICE ='' THEN 
+   SALESZOFFICE
+  ELSE
+   V_SALEZOFFICE
+  END)
+  and  SALESGROUP =(CASE WHEN V_SALESGROUP ='' THEN 
+    SALESGROUP 
+  ELSE
+    V_SALESGROUP
+  END)
+       */     
+order by MANAGER,SALESGROUP DESC, TO_DATE(PERIODNAMEYTD,'Month YYYY');

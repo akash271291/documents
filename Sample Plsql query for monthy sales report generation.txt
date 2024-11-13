@@ -1,0 +1,231 @@
+select distinct t2.*,
+
+(t2.grosssales - t2.discount - t2.buyback + t2.cda + t2.redeposit + t2.INVREVERSAL + t2.Return_Reversal + t2.SALESRTN)  ICMNETSALES from
+
+(Select T1.region,t1.sbu,t1.saleszoffice,t1.saleszofficename,t1.salesgroup,t1.empnum,t1.matgrp,t1.cycle,t1.emp_name,t1.designation,t1.emplvl,Sum(t1.bulksalesvalue) bulksalesvalue,
+
+sum(t1.APPLICABLEBULKSALESVALUE)APPLICABLEBULKSALESVALUE,sum(t1.UNISALESWITHOUTHCBULK)UNISALESWITHOUTHCBULK,sum(t1.VALUESALESWITHOUTHCBULK) VALUESALESWITHOUTHCBULK,sum(t1.HCSALESUNIT) HCSALESUNIT,sum(t1.HCSALESVALUE) HCSALESVALUE,sum(t1.EXTENDEDWARRANTYQTY) EXTENDEDWARRANTYQTY,
+
+sum(t1.EXTENDEDWARRANTYVALUE)EXTENDEDWARRANTYVALUE,sum(t1.GROSSSALES)GROSSSALES,sum(t1.BUYBACK)BUYBACK,sum(t1.Discount)Discount,sum(t1.SALESRTN)SALESRTN,sum(t1.CDA)CDA,sum(t1.Redeposit)Redeposit,sum(t1.INVREVERSAL)INVREVERSAL,
+
+sum(t1.Return_Reversal)Return_Reversal from
+
+(select distinct po.genericattribute10 as Region,
+
+Po.genericattribute11 as SBU,
+
+Po.genericattribute8 as SALESZOFFICE,
+
+PO.genericattribute16 AS saleszofficeName,
+
+ST.GENERICATTRIBUTE1 as SalesGroup,
+
+--GA.GENERICATTRIBUTE6 as SalesGroupName,
+
+PAR.Userid as EmpNum,
+
+ST.PRODUCTNAME as Matgrp,
+
+case when PD.name like 'April %'
+
+THEN 1
+
+else
+
+case when PD.name like 'May %'
+
+THEN 2
+
+else
+
+case when PD.name like 'June %'
+
+THEN 3
+
+else
+
+case when PD.name like 'July %'
+
+THEN 4
+
+else
+
+case when PD.name like 'August %'
+
+THEN 5
+
+else
+
+case when PD.name like 'September %'
+
+THEN 6
+
+else
+
+case when PD.name like 'October %'
+
+THEN 7
+
+else
+
+case when PD.name like 'November %'
+
+THEN 8
+
+else
+
+case when PD.name like 'December %'
+
+THEN 9
+
+else
+
+case when PD.name like 'January %'
+
+THEN 10
+
+else
+
+case when PD.name like 'February %'
+
+THEN 11
+
+else
+
+case when PD.name like 'March %'
+
+THEN 12
+
+else 0
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end
+
+end as CYCLE,
+
+PAR.LASTNAME as Emp_Name,
+
+---PAR.HIREDATE as DOJ,
+
+---To_Char(PAR.HIREDATE,'MM-DD-YYYY') as DOJ,
+
+Tl.name as Designation,
+
+Par.genericattribute6 as EMPLVL,
+
+/*
+
+case when st.genericattribute6 in ('ZDBS','ZDBO','ZDBL') and st.eventtypeseq= 16607023625928820 then st.genericnumber3    else 0 end as BULKSALESVALUE,
+
+case when st.genericattribute6 in ('ZDBS','ZDBO','ZDBL') and st.genericattribute11 ='YES' and st.eventtypeseq= 16607023625928820 then st.genericnumber3 else 0 end as APPLICABLEBULKSALESVALUE,
+
+case When st.genericattribute6 not in ('ZDBS','ZDBO','ZDBL') and st.productname<>'AC' and st.eventtypeseq= 16607023625928820 and st.productname <>'EW' Then St.NUMBEROFUNITS else 0  END  as UNISALESWITHOUTHCBULK,
+
+case When st.genericattribute6 not in ('ZDBS','ZDBO','ZDBL') and st.productname<>'AC' and st.eventtypeseq= 16607023625928820 and  st.productname <>'EW' Then st.genericnumber3 else 0 END as VALUESALESWITHOUTHCBULK,
+
+Case when st.productname='AC' and st.unitvalue>0  and st.eventtypeseq= 16607023625928820 then  st.numberofunits  else 0 end as HCSALESUNIT,   -- Update the credit rules with If then else for no of unit
+
+Case when st.productname='AC' and st.unitvalue>0   and st.eventtypeseq= 16607023625928820  then  st.genericnumber3  else 0 END as HCSALESVALUE,
+
+Case when st.productname='EW' and st.unitvalue>0   and st.eventtypeseq= 16607023625928820 then  st.numberofunits else 0 end as EXTENDEDWARRANTYQTY,
+
+Case when st.productname='EW' and st.unitvalue>0  and st.eventtypeseq= 16607023625928820 then  st.genericnumber3  else 0 end as EXTENDEDWARRANTYVALUE,
+
+case when st.eventtypeseq =16607023625928820 then st.genericnumber3 else 0 end as GROSSSALES,
+
+case when st.genericattribute6 in ('ZDBB','ZDOB') and st.eventtypeseq =16607023625928820  then st.genericnumber5 else 0 end as BUYBACK,
+
+case when st.genericattribute6 not in ('ZDBB','ZDOB') and st.eventtypeseq =16607023625928820  then st.genericnumber5   else 0 end as Discount,
+
+case when st.eventtypeseq =16607023625928824 then st.value else 0 end as SALESRTN,
+
+case when st.eventtypeseq =16607023625928822 then st.value else 0 end as CDA,
+
+case when st.eventtypeseq =16607023625928821 then st.value else 0  end as Redeposit,
+
+case when st.eventtypeseq =16607023625929117 then st.value else 0 end as INVREVERSAL,
+
+case when st.eventtypeseq =16607023625929116 then st.value else 0 end as Return_Reversal
+
+,pd.name,
+
+*/
+
+case when st.eventtypeseq =16607023625928820 AND PD.NAME='February 2021' then st.genericnumber3 else 0 end as GROSSSALES,
+
+case when st.eventtypeseq =16607023625928820 then st.genericnumber3 else 0 end as GROSSSALESYTD,
+
+pd.name
+
+ 
+
+--cr.name
+
+from cs_participant par,cs_position po,
+
+--cs_credit cr,
+
+cs_salestransaction st,cs_title tl,cs_period pd, cs_transactionassignment sta,cs_salesorder so where
+
+sta.salestransactionseq=st.salestransactionseq
+
+and par.payeeseq=po.payeeseq
+
+and so.salesorderseq=st.salesorderseq
+
+and so.salesorderseq = sta.salesorderseq
+
+and ((so.genericnumber1 is not null or st.genericnumber1 is not null) or sta.genericattribute1 = 'L0 SC' )
+
+--cr.payeeseq=po.payeeseq and
+
+and PO.removedate = '2200-01-01 00:00:00.000000000'
+
+and Par.removedate = '2200-01-01 00:00:00.000000000' and po.titleseq=tl.ruleelementownerseq and tl.removedate = '2200-01-01 00:00:00.000000000'
+
+--and cr.salestransactionseq=st.salestransactionseq
+
+--and pd.name='February 2021'
+
+and PD.PERIODSEQ BETWEEN 2533274790396295 AND  2533274790396305
+
+and po.effectivestartdate <= PD.ENDdate
+
+and par.userid ='09002956'
+
+and par.userid=sta.payeeid
+
+--and st.genericattribute1='H0U'
+
+and pd.startdate =st.compensationdate) T1
+
+group by T1.region,t1.sbu,t1.saleszoffice,t1.saleszofficename,t1.salesgroup,t1.empnum,t1.matgrp,t1.cycle,t1.emp_name,t1.designation,t1.emplvl) t2
+
+group by t2.region,t2.sbu,t2.saleszoffice,t2.saleszofficename,t2.salesgroup,t2.empnum,t2.matgrp,t2.cycle,t2.emp_name,t2.designation,t2.emplvl,
+
+t2.bulksalesvalue,
+
+t2.APPLICABLEBULKSALESVALUE,t2.UNISALESWITHOUTHCBULK,t2.VALUESALESWITHOUTHCBULK,t2.HCSALESUNIT, t2.HCSALESVALUE,t2.EXTENDEDWARRANTYQTY,
+
+t2.EXTENDEDWARRANTYVALUE,t2.GROSSSALES,t2.BUYBACK,t2.Discount,t2.SALESRTN,t2.CDA,t2.Redeposit,t2.INVREVERSAL,
+
+t2.Return_Reversal

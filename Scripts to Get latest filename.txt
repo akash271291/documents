@@ -1,0 +1,154 @@
+##################################################################################
+####################### Get latest SLN filename ##################################
+##################################################################################
+log=$CIF_INBOUND/INF1494/logs/FTP_SLN_${timestamp}.log
+cif_log $0 info "Log file for SLN is: $log"
+
+#sftp  $FTP_HOST <<EOF | tee -a $log
+sftp  $FTP_USER@$FTP_HOST <<EOF | tee -a $log
+cd $FTP_DIM_WEEKLY_HOME_DIR
+ls 20*.HCE.LICENSE*.GZ
+EOF
+
+retcode=$?
+if test $retcode -eq 0
+ then
+  cif_log $0 info "List of latest SLN files downloaded from FTP server "
+  echo "List of latest SLN files downloaded from FTP server "
+ else
+  error "Problem downloading the list of SLN files...Hence aborting process..." 50
+fi
+
+latest_sln_file=`grep -i 'HCE.LICENSE' $log | tail -1|awk -F' ' '{print $1}'`
+current_sln_file_name=`cat $CIF_INBOUND/INF1494/current_files/current_sln_file`
+
+echo "current SLN file name : $current_sln_file_name"
+cif_log $0 info "current SLN file name : $current_sln_file_name"
+echo "latest SLN file name on FTP : $latest_sln_file"
+cif_log $0 info "latest SLN file name on FTP : $latest_sln_file"
+
+if [ ${latest_sln_file} = ${current_sln_file_name} ]
+then
+    echo "No New SLN file to get"
+     cif_log $0 info "No New SLN file to get"
+else
+    dest_sln_arch_folder=`echo $latest_sln_file|cut -f1 -d\.`
+    echo SLN archive folder/ timestamp = $dest_sln_arch_folder
+    cif_log $0 info "SLN archive folder/ timestamp = $dest_sln_arch_folder"
+fi
+##################################################################################
+#################### Get latest IMS_WEEKLY_IDS filename ##########################
+##################################################################################
+log=$CIF_INBOUND/INF1494/logs/FTP_IW_${timestamp}.log
+cif_log $0 info "Log file for IMS_WEEKLY_IDS is: $log"
+
+#sftp $FTP_HOST <<EOF | tee -a $log
+sftp  $FTP_USER@$FTP_HOST <<EOF | tee -a $log
+cd $FTP_DIM_WEEKLY_HOME_DIR
+ls ONG.20*.LKP.PRSC.*.GZ
+EOF
+
+retcode=$?
+if test $retcode -eq 0
+ then
+  cif_log $0 info "List of latest IMS_WEEKLY_IDS files downloaded from FTP server "
+  echo "List of latest IMS_WEEKLY_IDS files downloaded from FTP server "
+ else
+  error "Problem downloading the list of IMS_WEEKLY_IDS files...Hence aborting process..." 50
+fi
+
+latest_iw_file=`grep -i 'LKP.PRSC' $log |tail -1| awk -F' ' '{print $1}'`
+current_iw_file_name=`cat $CIF_INBOUND/INF1494/current_files/current_iw_file`
+
+echo "current IMS_WEEKLY_IDS file name : $current_iw_file_name"
+cif_log $0 info "current IMS_WEEKLY_IDS file name : $current_iw_file_name"
+echo "latest IMS_WEEKLY_IDS file name on FTP : $latest_iw_file"
+cif_log $0 info "latest IMS_WEEKLY_IDS file name on FTP : $latest_iw_file"
+
+if [ ${latest_iw_file} = ${current_iw_file_name} ]
+then
+    echo "No New IMS_WEEKLY_IDS file to get"
+     cif_log $0 info "No New IMS_WEEKLY_IDS file to get"
+else
+    dest_iw_arch_folder=`echo $latest_iw_file|cut -f2 -d\.`
+    echo IMS_WEEKLY_IDS archive folder/ timestamp = $dest_iw_arch_folder
+    cif_log $0 info "IMS_WEEKLY_IDS archive folder/ timestamp = $dest_iw_arch_folder"
+fi
+##################################################################################
+########################### Get latest PDRP filename #############################
+##################################################################################
+log=$CIF_INBOUND/INF1494/logs/FTP_PDRP_${timestamp}.log
+cif_log $0 info "Log file for PDRP is: $log"
+
+#sftp $FTP_HOST <<EOF | tee -a $log
+sftp $FTP_USER@$FTP_HOST <<EOF | tee -a $log
+cd $FTP_DIM_WEEKLY_HOME_DIR
+ls  20*.LKP.PDRP.*.GZ
+EOF
+
+retcode=$?
+if test $retcode -eq 0
+ then
+  cif_log $0 info "List of latest PDRP files downloaded from FTP server "
+  echo "List of latest PDRP files downloaded from FTP server "
+ else
+  error "Problem downloading the list of PDRP files...Hence aborting process..." 50
+fi
+
+latest_pdrp_file=`grep -i 'LKP.PDRP' $log | tail -1|awk -F' ' '{print $1}'`
+current_pdrp_file_name=`cat $CIF_INBOUND/INF1494/current_files/current_pdrp_file`
+
+echo "current PDRP file name : $current_pdrp_file_name"
+cif_log $0 info "current PDRP file name : $current_pdrp_file_name"
+echo "latest PDRP file name on FTP : $latest_pdrp_file"
+cif_log $0 info "latest PDRP file name on FTP : $latest_pdrp_file"
+
+if [ ${latest_pdrp_file} = ${current_pdrp_file_name} ]
+then
+    echo "No New PDRP file to get"
+     cif_log $0 info "No New PDRP file to get"
+else
+    dest_pdrp_arch_folder=`echo $latest_pdrp_file|cut -f1 -d\.`
+    echo PDRP archive folder/ timestamp = $dest_pdrp_arch_folder
+    cif_log $0 info "PDRP archive folder/ timestamp = $dest_pdrp_arch_folder"
+fi
+
+##################################################################################
+####################### Get latest CSR filename ##################################
+##################################################################################
+log=$CIF_INBOUND/INF1494/logs/FTP_CSR_${timestamp}.log
+cif_log $0 info "Log file for CSR is: $log"
+
+#ftp $FTP_HOST <<EOF | tee -a $log
+sftp $FTP_USER@$FTP_HOST <<EOF | tee -a $log
+cd $FTP_DIM_WEEKLY_HOME_DIR
+ls 20*.HCE.CSR*.GZ
+EOF
+
+retcode=$?
+if test $retcode -eq 0
+ then
+  cif_log $0 info "List of latest CSR files downloaded from FTP server "
+  echo "List of latest CSR files downloaded from FTP server "
+ else
+  error "Problem downloading the list of CSR files...Hence aborting process..." 50
+fi
+
+latest_csr_file=`grep -i 'HCE.CSR' $log |tail -1| awk -F' ' '{print $1}'`
+current_csr_file_name=`cat $CIF_INBOUND/INF1494/current_files/current_csr_file`
+
+echo "current CSR file name : $current_csr_file_name"
+cif_log $0 info "current CSR file name : $current_csr_file_name"
+echo "latest CSR file name on FTP : $latest_csr_file"
+cif_log $0 info "latest CSR file name on FTP : $latest_csr_file"
+
+if [ ${latest_csr_file} = ${current_csr_file_name} ]
+then
+    echo "No New CSR file to get"
+     cif_log $0 info "No New CSR file to get"
+else
+    dest_csr_arch_folder=`echo $latest_csr_file|cut -f1 -d\.`
+    echo CSR archive folder/ timestamp = $dest_csr_arch_folder
+    cif_log $0 info "CSR archive folder/ timestamp = $dest_csr_arch_folder"
+fi
+
